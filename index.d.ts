@@ -8,7 +8,9 @@ import { Recipe } from 'prismarine-recipe'
 import { Block } from 'prismarine-block'
 import { Entity } from 'prismarine-entity'
 import { ChatMessage } from 'prismarine-chat'
+import { world } from 'prismarine-world'
 import { Registry } from 'prismarine-registry'
+import { IndexedData } from 'minecraft-data'
 
 export function createBot (options: { client: Client } & Partial<BotOptions>): Bot
 export function createBot (options: BotOptions): Bot
@@ -25,6 +27,8 @@ export interface BotOptions extends ClientOptions {
   difficulty?: number
   chatLengthLimit?: number
   physicsEnabled?: boolean
+  /** @default 4 */
+  maxCatchupTicks?: number
   client?: Client
   brand?: string
   defaultChatPatterns?: boolean
@@ -63,6 +67,7 @@ export interface BotEvents {
   unmatchedMessage: (stringMsg: string, jsonMsg: ChatMessage) => Promise<void> | void
   inject_allowed: () => Promise<void> | void
   login: () => Promise<void> | void
+  /** When `respawn` option is disabled, you can call this method manually to respawn. */
   spawn: () => Promise<void> | void
   respawn: () => Promise<void> | void
   game: () => Promise<void> | void
@@ -92,6 +97,8 @@ export interface BotEvents {
   entityEquip: (entity: Entity) => Promise<void> | void
   entitySleep: (entity: Entity) => Promise<void> | void
   entitySpawn: (entity: Entity) => Promise<void> | void
+  entityElytraFlew: (entity: Entity) => Promise<void> | void
+  usedFirework: () => Promise<void> | void
   itemDrop: (entity: Entity) => Promise<void> | void
   playerCollect: (collector: Entity, collected: Entity) => Promise<void> | void
   entityAttributes: (entity: Entity) => Promise<void> | void
@@ -151,10 +158,18 @@ export interface BotEvents {
   teamUpdated: (team: Team) => Promise<void> | void
   teamMemberAdded: (team: Team) => Promise<void> | void
   teamMemberRemoved: (team: Team) => Promise<void> | void
+  bossBarCreated: (bossBar: BossBar) => Promise<void> | void
   bossBarDeleted: (bossBar: BossBar) => Promise<void> | void
   bossBarUpdated: (bossBar: BossBar) => Promise<void> | void
-  resourcePack: (url: string, hash: string) => Promise<void> | void
+  resourcePack: (url: string, hash?: string, uuid?: string) => Promise<void> | void
   particle: (particle: Particle) => Promise<void> | void
+}
+
+export interface CommandBlockOptions {
+  mode: number,
+  trackOutput: boolean,
+  conditional: boolean,
+  alwaysActive: boolean
 }
 
 export interface Bot extends TypedEmitter<BotEvents> {
@@ -164,6 +179,7 @@ export interface Bot extends TypedEmitter<BotEvents> {
   version: string
   entity: Entity
   entities: { [id: string]: Entity }
+  fireworkRocketDuration: number
   spawnPoint: Vec3
   game: GameState
   player: Player
@@ -186,10 +202,11 @@ export interface Bot extends TypedEmitter<BotEvents> {
   isSleeping: boolean
   scoreboards: { [name: string]: ScoreBoard }
   scoreboard: { [slot in DisplaySlot]: ScoreBoard }
+  teams: { [name: string]: Team }
   teamMap: { [name: string]: Team }
   controlState: ControlStateStatus
   creative: creativeMethods
-  world: any
+  world: world.WorldSync
   _client: Client
   heldItem: Item | null
   usingHeldItem: boolean
@@ -200,7 +217,7 @@ export interface Bot extends TypedEmitter<BotEvents> {
 
   connect: (options: BotOptions) => void
 
-  supportFeature: (feature: string) => boolean
+  supportFeature: IndexedData['supportFeature']
 
   end: (reason?: string) => void
 
@@ -237,7 +254,8 @@ export interface Bot extends TypedEmitter<BotEvents> {
   tabComplete: (
     str: string,
     assumeCommand?: boolean,
-    sendBlockInSight?: boolean
+    sendBlockInSight?: boolean,
+    timeout?: number
   ) => Promise<string[]>
 
   chat: (message: string) => void
@@ -259,6 +277,8 @@ export interface Bot extends TypedEmitter<BotEvents> {
   isABed: (bedBlock: Block) => boolean
 
   wake: () => Promise<void>
+
+  elytraFly: () => Promise<void>
 
   setControlState: (control: ControlState, state: boolean) => void
 
@@ -366,7 +386,9 @@ export interface Bot extends TypedEmitter<BotEvents> {
     times?: number
   ) => Promise<void>
 
-  setCommandBlock: (pos: Vec3, command: string, trackOutput: boolean) => void
+  
+  
+  setCommandBlock: (pos: Vec3, command: string, options: CommandBlockOptions) => void
 
   clickWindow: (
     slot: number,
@@ -402,6 +424,7 @@ export interface Bot extends TypedEmitter<BotEvents> {
 
   waitForChunksToLoad: () => Promise<void>
 
+  entityAtCursor: (maxDistance?: number) => Entity | null
   nearestEntity: (filter?: (entity: Entity) => boolean) => Entity | null
 
   waitForTicks: (ticks: number) => Promise<void>
@@ -417,6 +440,8 @@ export interface Bot extends TypedEmitter<BotEvents> {
   acceptResourcePack: () => void
 
   denyResourcePack: () => void
+
+  respawn: () => void
 }
 
 export interface simpleClick {
@@ -441,6 +466,7 @@ export interface GameState {
   dimension: Dimension
   difficulty: Difficulty
   maxPlayers: number
+  serverBrand: string
 }
 
 export type LevelType =
@@ -766,7 +792,7 @@ export class ScoreBoard {
 
   setTitle (title: string): void;
 
-  add (name: string, value: number, displayName: ChatMessage): ScoreBoardItem;
+  add(name: string, value: number): ScoreBoardItem;
 
   remove (name: string): ScoreBoardItem;
 }
@@ -778,6 +804,7 @@ export interface ScoreBoardItem {
 }
 
 export class Team {
+  team: string
   name: ChatMessage
   friendlyFire: number
   nameTagVisibility: string
@@ -785,8 +812,10 @@ export class Team {
   color: string
   prefix: ChatMessage
   suffix: ChatMessage
+  memberMap: { [name: string]: '' }
+  members: string[]
 
-  constructor (packet: object);
+  constructor(team: string, name: string, friendlyFire: boolean, nameTagVisibility: string, collisionRule: string, formatting: number, prefix: string, suffix: string);
 
   parseMessage (value: string): ChatMessage;
 
@@ -828,6 +857,7 @@ export class BossBar {
   color: 'pink' | 'blue' | 'red' | 'green' | 'yellow' | 'purple' | 'white'
   shouldDarkenSky: boolean
   isDragonBar: boolean
+  createFog: boolean
   shouldCreateFog: boolean
 
   constructor (
@@ -841,26 +871,26 @@ export class BossBar {
 }
 
 export class Particle {
-    id: number
-    name: string
-    position: Vec3
-    offset: Vec3
-    count: number
-    movementSpeed: number
-    longDistanceRender: boolean
-    static fromNetwork(packet: Object): Particle
+  id: number
+  position: Vec3
+  offset: Vec3
+  count: number
+  movementSpeed: number
+  longDistanceRender: boolean
+  static fromNetwork(packet: Object): Particle
 
-    constructor (
-        id: number,
-        position: Vec3,
-        offset: Vec3,
-        count?: number,
-        movementSpeed?: number,
-        longDistanceRender?: boolean
-    );
+  constructor(
+    id: number,
+    position: Vec3,
+    offset: Vec3,
+    count?: number,
+    movementSpeed?: number,
+    longDistanceRender?: boolean
+  );
 }
 
-export let supportedVersions: string[]
 export let testedVersions: string[]
+export let latestSupportedVersion: string
+export let oldestSupportedVersion: string
 
 export function supportFeature (feature: string, version: string): boolean
