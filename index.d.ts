@@ -62,6 +62,7 @@ export interface BotEvents {
   ) => Promise<void> | void
   actionBar: (jsonMsg: ChatMessage) => Promise<void> | void
   error: (err: Error) => Promise<void> | void
+  worldSwitch: () => Promise<void> | void
   message: (jsonMsg: ChatMessage, position: string) => Promise<void> | void
   messagestr: (message: string, position: string, jsonMsg: ChatMessage) => Promise<void> | void
   unmatchedMessage: (stringMsg: string, jsonMsg: ChatMessage) => Promise<void> | void
@@ -387,8 +388,8 @@ export interface Bot extends TypedEmitter<BotEvents> {
     times?: number
   ) => Promise<void>
 
-  
-  
+
+
   setCommandBlock: (pos: Vec3, command: string, options: CommandBlockOptions) => void
 
   clickWindow: (
