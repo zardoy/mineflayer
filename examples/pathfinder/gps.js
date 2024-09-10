@@ -1,6 +1,6 @@
 // This is an example that uses mineflayer-pathfinder to showcase how simple it is to walk to goals
 
-const mineflayer = require('mineflayer')
+const mineflayer = require('../../')
 const { pathfinder, Movements, goals: { GoalNear } } = require('mineflayer-pathfinder')
 
 if (process.argv.length < 4 || process.argv.length > 6) {
@@ -36,3 +36,5 @@ bot.once('spawn', () => {
     bot.pathfinder.setGoal(new GoalNear(playerX, playerY, playerZ, RANGE_GOAL))
   })
 })
+
+bot.on('error', err => console.log(err))
