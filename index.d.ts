@@ -543,6 +543,7 @@ export interface PhysicsOptions {
   playerHeight: number
   jumpSpeed: number
   yawSpeed: number
+  pitchSpeed: number
   sprintSpeed: number
   maxGroundSpeedSoulSand: number
   maxGroundSpeedWater: number
