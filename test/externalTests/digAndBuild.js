@@ -4,8 +4,10 @@ const assert = require('assert')
 module.exports = () => async (bot) => {
   const Item = require('prismarine-item')(bot.registry)
 
+  bot.on('move', console.log)
   await bot.test.setInventorySlot(36, new Item(bot.registry.itemsByName.dirt.id, 1, 0))
   await bot.test.fly(new Vec3(0, 2, 0))
+  console.log('made it')
   await bot.test.placeBlock(36, bot.entity.position.plus(new Vec3(0, -2, 0)))
   await bot.test.clearInventory()
   await bot.creative.stopFlying()
