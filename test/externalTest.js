@@ -15,14 +15,14 @@ const START_THE_SERVER = true
 const TEST_TIMEOUT_MS = 90000
 
 // excludedTests should be everything in the tests folder except "digAndBuild"
-const testNames = fs.readdirSync(path.resolve(__dirname, './externalTests'))
-  .filter(file => fs.statSync(path.join(path.resolve(__dirname, './externalTests'), file)).isFile())
-  .map(file => path.basename(file, '.js'))
+// const testNames = fs.readdirSync(path.resolve(__dirname, './externalTests'))
+//   .filter(file => fs.statSync(path.join(path.resolve(__dirname, './externalTests'), file)).isFile())
+//   .map(file => path.basename(file, '.js'))
 
-const excludedTests = testNames.filter(test => test !== 'digAndBuild')
+// const excludedTests = testNames.filter(test => test !== 'digAndBuild')
 
+const excludedTests = ['digEverything', 'book', 'anvil', 'placeEntity']
 console.log('Excluded tests:', excludedTests)
-// const excludedTests = ['digEverything', 'book', 'anvil', 'placeEntity']
 
 const propOverrides = {
   'level-type': 'FLAT',
