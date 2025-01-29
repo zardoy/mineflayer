@@ -163,6 +163,7 @@ export interface BotEvents {
   bossBarUpdated: (bossBar: BossBar) => Promise<void> | void
   resourcePack: (url: string, hash?: string, uuid?: string) => Promise<void> | void
   particle: (particle: Particle) => Promise<void> | void
+  abilities: (abilities: Abilities) => Promise<void> | void
 }
 
 export interface CommandBlockOptions {
@@ -177,7 +178,13 @@ export interface Bot extends TypedEmitter<BotEvents> {
   protocolVersion: string
   majorVersion: string
   version: string
-  entity: Entity
+  entity: Entity & {
+    abilities: Abilities
+    isInvulnerable: boolean
+    isFlying: boolean
+    canFly: boolean
+    canInstantlyBuild: boolean
+  }
   entities: { [id: string]: Entity }
   fireworkRocketDuration: number
   spawnPoint: Vec3
@@ -386,8 +393,8 @@ export interface Bot extends TypedEmitter<BotEvents> {
     times?: number
   ) => Promise<void>
 
-  
-  
+
+
   setCommandBlock: (pos: Vec3, command: string, options: CommandBlockOptions) => void
 
   clickWindow: (
@@ -895,3 +902,9 @@ export let latestSupportedVersion: string
 export let oldestSupportedVersion: string
 
 export function supportFeature (feature: string, version: string): boolean
+
+export interface Abilities {
+  flags: number
+  flyingSpeed: number
+  walkingSpeed: number
+}
