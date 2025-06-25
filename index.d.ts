@@ -68,7 +68,6 @@ export interface BotEvents {
   unmatchedMessage: (stringMsg: string, jsonMsg: ChatMessage) => Promise<void> | void
   inject_allowed: () => Promise<void> | void
   login: () => Promise<void> | void
-  worldSwitch: () => Promise<void> | void
   /** When `respawn` option is disabled, you can call this method manually to respawn. */
   spawn: () => Promise<void> | void
   respawn: () => Promise<void> | void
@@ -158,8 +157,8 @@ export interface BotEvents {
   teamCreated: (team: Team) => Promise<void> | void
   teamRemoved: (team: Team) => Promise<void> | void
   teamUpdated: (team: Team) => Promise<void> | void
-  teamMemberAdded: (team: Team) => Promise<void> | void
-  teamMemberRemoved: (team: Team) => Promise<void> | void
+  teamMemberAdded: (team: Team, members: string[]) => Promise<void> | void
+  teamMemberRemoved: (team: Team, members: string[]) => Promise<void> | void
   bossBarCreated: (bossBar: BossBar) => Promise<void> | void
   bossBarDeleted: (bossBar: BossBar) => Promise<void> | void
   bossBarUpdated: (bossBar: BossBar) => Promise<void> | void
@@ -905,9 +904,3 @@ export let latestSupportedVersion: string
 export let oldestSupportedVersion: string
 
 export function supportFeature (feature: string, version: string): boolean
-
-export interface Abilities {
-  flags: number
-  flyingSpeed: number
-  walkingSpeed: number
-}
