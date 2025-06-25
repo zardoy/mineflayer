@@ -333,11 +333,11 @@ for (const supportedVersion of mineflayer.testedVersions) {
                 } else {
                   assert.ok(bot.entity.velocity.y !== 0)
                 }
-                assert.ok(basePosition.x === data.x)
-                assert.ok(basePosition.y === data.y)
-                assert.ok(basePosition.z === data.z)
-                assert.ok(basePosition.yaw === data.yaw)
-                assert.ok(basePosition.pitch === data.pitch)
+                assert.ok(basePosition.x === data.x, `${basePosition} !== ${data}`)
+                assert.ok(basePosition.y === data.y, `${basePosition} !== ${data}`)
+                assert.ok(basePosition.z === data.z, `${basePosition} !== ${data}`)
+                assert.ok(basePosition.yaw === data.yaw, `${basePosition} !== ${data}`)
+                assert.ok(basePosition.pitch === data.pitch, `${basePosition} !== ${data}`)
                 check = false
                 break
               }
