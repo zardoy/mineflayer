@@ -23,7 +23,7 @@
   "dependencies": {
     "@nxg-org/mineflayer-physics-util": "^1.8.6",
     "minecraft-data": "^3.98.0",
-    "minecraft-protocol": "^1.61.0",
+    "minecraft-protocol": "^1.63.0",
     "prismarine-biome": "^1.1.1",
     "prismarine-block": "^1.22.0",
     "prismarine-chat": "^1.7.1",
@@ -38,6 +38,7 @@
     "prismarine-world": "^3.6.0",
     "protodef": "^1.18.0",
     "typed-emitter": "^1.0.0",
+    "uuid-1345": "^1.0.2",
     "vec3": "^0.1.7"
   },
   "devDependencies": {
