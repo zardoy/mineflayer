@@ -146,6 +146,7 @@ export interface BotEvents {
   sleep: () => Promise<void> | void
   wake: () => Promise<void> | void
   experience: () => Promise<void> | void
+  physicsTickBegin: () => Promise<void> | void
   physicsTick: () => Promise<void> | void
   physicTick: () => Promise<void> | void
   scoreboardCreated: (scoreboard: ScoreBoard) => Promise<void> | void
