@@ -1898,10 +1898,14 @@ This function returns a `Promise`, with `void` as its argument once tossing is c
    to match any metadata
  * `count` - how many you want to toss. `null` is an alias for `1`.
 
-#### bot.elytraFly()
+#### bot.elytraFly([options])
 
 This function returns a `Promise`, with `void` as its argument once activating
 elytra flight is complete. It will throw an Error if it fails.
+
+ * `options` - (optional) either a boolean shorthand for `assistTakeoff`, or an object with:
+ * `assistTakeoff` - (optional) defaults to `false`. When `true`, temporarily manages jump and movement input to help start elytra flight.
+ * `force` - (optional) defaults to `false`. When `true`, does not reject the request just because the local state already says the bot is elytra flying.
 
 #### bot.dig(block, [forceLook = true], [digFace])
 

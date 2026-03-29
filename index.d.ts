@@ -45,6 +45,11 @@ export interface PluginOptions {
 
 export type Plugin = (bot: Bot, options: BotOptions) => void
 
+export interface ElytraFlyOptions {
+  assistTakeoff?: boolean
+  force?: boolean
+}
+
 export interface BotEvents {
   chat: (
     username: string,
@@ -288,7 +293,7 @@ export interface Bot extends TypedEmitter<BotEvents> {
 
   wake: () => Promise<void>
 
-  elytraFly: () => Promise<void>
+  elytraFly: (options?: boolean | ElytraFlyOptions) => Promise<void>
 
   setControlState: (control: ControlState, state: boolean) => void
 
