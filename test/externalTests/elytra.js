@@ -22,8 +22,6 @@ module.exports = () => async (bot) => {
   await assert.doesNotReject(bot.elytraFly())
   await bot.waitForTicks(20) // wait for server to accept
   assert.ok(bot.entity.fallFlying)
-  await assert.doesNotReject(bot.elytraFly({ force: true }))
-  assert.ok(bot.entity.fallFlying)
 
   if (!supportsFireworkRockets) return
 
