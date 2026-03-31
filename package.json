@@ -21,7 +21,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@nxg-org/mineflayer-physics-util": "^1.8.19",
+    "@nxg-org/mineflayer-physics-util": "^1.9.0",
     "minecraft-data": "^3.108.0",
     "minecraft-protocol": "^1.64.0",
     "prismarine-biome": "^1.1.1",
