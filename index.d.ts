@@ -152,6 +152,7 @@ export interface BotEvents {
   wake: () => Promise<void> | void
   experience: () => Promise<void> | void
   physicsTickBegin: () => Promise<void> | void
+  entityPhysicsTick: () => Promise<void> | void
   physicsTick: () => Promise<void> | void
   physicTick: () => Promise<void> | void
   scoreboardCreated: (scoreboard: ScoreBoard) => Promise<void> | void
@@ -209,6 +210,7 @@ export interface Bot extends TypedEmitter<BotEvents> {
   foodSaturation: number
   oxygenLevel: number
   physics: PhysicsOptions
+  entityPhysics: EntityPhysicsOptions
   physicsEnabled: boolean
   time: Time
   quickBarSlot: number
@@ -560,6 +562,14 @@ export interface PhysicsOptions {
   sprintSpeed: number
   maxGroundSpeedSoulSand: number
   maxGroundSpeedWater: number
+}
+
+export interface EntityPhysicsOptions {
+  contexts: Map<number, any>
+  settings: any
+  syncEntity: (entity: Entity) => any
+  simulateEntity: (entity: Entity) => any
+  clear: () => void
 }
 
 export interface Time {
