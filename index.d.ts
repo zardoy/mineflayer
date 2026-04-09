@@ -110,6 +110,7 @@ export interface BotEvents {
   entityAttributes: (entity: Entity) => Promise<void> | void
   entityGone: (entity: Entity) => Promise<void> | void
   entityMoved: (entity: Entity) => Promise<void> | void
+  entityVelocity: (entity: Entity) => Promise<void> | void
   entityDetach: (entity: Entity, vehicle: Entity) => Promise<void> | void
   entityAttach: (entity: Entity, vehicle: Entity) => Promise<void> | void
   entityUpdate: (entity: Entity) => Promise<void> | void
