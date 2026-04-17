@@ -153,9 +153,9 @@ export interface BotEvents {
   wake: () => Promise<void> | void
   experience: () => Promise<void> | void
   physicsTickBegin: () => Promise<void> | void
-  entityPhysicsTick: () => Promise<void> | void
   physicsTick: () => Promise<void> | void
   physicTick: () => Promise<void> | void
+  entityPhysicsTick: () => Promise<void> | void
   scoreboardCreated: (scoreboard: ScoreBoard) => Promise<void> | void
   scoreboardDeleted: (scoreboard: ScoreBoard) => Promise<void> | void
   scoreboardTitleChanged: (scoreboard: ScoreBoard) => Promise<void> | void
@@ -445,7 +445,7 @@ export interface Bot extends TypedEmitter<BotEvents> {
   entityAtCursor: (maxDistance?: number) => Entity | null
   nearestEntity: (filter?: (entity: Entity) => boolean) => Entity | null
 
-  waitForTicks: (ticks: number) => Promise<void>
+  waitForTicks: (ticks: number, tickBegin?: boolean) => Promise<void>
 
   addChatPattern: (name: string, pattern: RegExp, options?: chatPatternOptions) => number
 
