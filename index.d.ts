@@ -45,6 +45,11 @@ export interface PluginOptions {
 
 export type Plugin = (bot: Bot, options: BotOptions) => void
 
+export interface ElytraFlyOptions {
+  assistTakeoff?: boolean
+  force?: boolean
+}
+
 export interface BotEvents {
   chat: (
     username: string,
@@ -105,6 +110,7 @@ export interface BotEvents {
   entityAttributes: (entity: Entity) => Promise<void> | void
   entityGone: (entity: Entity) => Promise<void> | void
   entityMoved: (entity: Entity) => Promise<void> | void
+  entityVelocity: (entity: Entity) => Promise<void> | void
   entityDetach: (entity: Entity, vehicle: Entity) => Promise<void> | void
   entityAttach: (entity: Entity, vehicle: Entity) => Promise<void> | void
   entityUpdate: (entity: Entity) => Promise<void> | void
@@ -146,8 +152,10 @@ export interface BotEvents {
   sleep: () => Promise<void> | void
   wake: () => Promise<void> | void
   experience: () => Promise<void> | void
+  physicsTickBegin: () => Promise<void> | void
   physicsTick: () => Promise<void> | void
   physicTick: () => Promise<void> | void
+  entityPhysicsTick: () => Promise<void> | void
   scoreboardCreated: (scoreboard: ScoreBoard) => Promise<void> | void
   scoreboardDeleted: (scoreboard: ScoreBoard) => Promise<void> | void
   scoreboardTitleChanged: (scoreboard: ScoreBoard) => Promise<void> | void
@@ -204,6 +212,7 @@ export interface Bot extends TypedEmitter<BotEvents> {
   foodSaturation: number
   oxygenLevel: number
   physics: PhysicsOptions
+  entityPhysics: EntityPhysicsOptions
   physicsEnabled: boolean
   time: Time
   quickBarSlot: number
@@ -288,7 +297,7 @@ export interface Bot extends TypedEmitter<BotEvents> {
 
   wake: () => Promise<void>
 
-  elytraFly: () => Promise<void>
+  elytraFly: (options?: boolean | ElytraFlyOptions) => Promise<void>
 
   setControlState: (control: ControlState, state: boolean) => void
 
@@ -437,7 +446,7 @@ export interface Bot extends TypedEmitter<BotEvents> {
   entityAtCursor: (maxDistance?: number) => Entity | null
   nearestEntity: (filter?: (entity: Entity) => boolean) => Entity | null
 
-  waitForTicks: (ticks: number) => Promise<void>
+  waitForTicks: (ticks: number, tickBegin?: boolean) => Promise<void>
 
   addChatPattern: (name: string, pattern: RegExp, options?: chatPatternOptions) => number
 
@@ -555,6 +564,14 @@ export interface PhysicsOptions {
   sprintSpeed: number
   maxGroundSpeedSoulSand: number
   maxGroundSpeedWater: number
+}
+
+export interface EntityPhysicsOptions {
+  contexts: Map<number, any>
+  settings: any
+  syncEntity: (entity: Entity) => any
+  simulateEntity: (entity: Entity) => any
+  clear: () => void
 }
 
 export interface Time {
