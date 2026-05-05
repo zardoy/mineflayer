@@ -561,6 +561,7 @@ export interface PhysicsOptions {
   jumpSpeed: number
   yawSpeed: number
   pitchSpeed: number
+  physicsIntervalMs: number
   sprintSpeed: number
   maxGroundSpeedSoulSand: number
   maxGroundSpeedWater: number
