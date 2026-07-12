@@ -1,0 +1,356 @@
+/* eslint-env mocha */
+
+const mineflayer = require('../')
+const mc = require('minecraft-protocol')
+const vec3 = require('vec3')
+const assert = require('assert')
+const { once } = require('../lib/promise_utils')
+
+for (const supportedVersion of mineflayer.testedVersions) {
+  const registry = require('prismarine-registry')(supportedVersion)
+  const Block = require('prismarine-block')(supportedVersion)
+  const hasSetPassengers = registry.version['>=']('1.9')
+  const usesLegacySteerVehicle = !registry.supportFeature('newPlayerInputPacket')
+
+  describe(`mineflayer_vehicle_lifecycle ${supportedVersion}v`, function () {
+    this.timeout(10 * 1000)
+    let bot
+    let server
+
+    beforeEach((done) => {
+      server = mc.createServer({
+        'online-mode': false,
+        version: supportedVersion,
+        port: 25568
+      })
+      server.on('listening', () => {
+        bot = mineflayer.createBot({
+          username: 'player',
+          version: supportedVersion,
+          port: 25568
+        })
+        bot.test = {}
+        bot.test.generateLoginPacket = () => {
+          if (bot.supportFeature('usesLoginPacket')) {
+            const loginPacket = registry.loginPacket
+            loginPacket.entityId = 0
+            return loginPacket
+          }
+          return {
+            entityId: 0,
+            levelType: 'fogetaboutit',
+            gameMode: 0,
+            previousGameMode: 255,
+            worldNames: ['minecraft:overworld'],
+            dimension: 0,
+            worldName: 'minecraft:overworld',
+            hashedSeed: [0, 0],
+            difficulty: 0,
+            maxPlayers: 20,
+            reducedDebugInfo: 1,
+            enableRespawnScreen: true
+          }
+        }
+        done()
+      })
+    })
+
+    afterEach((done) => {
+      bot.on('end', () => done())
+      server.close()
+    })
+
+    function captureWrites () {
+      const writes = []
+      const oldWrite = bot._client.write
+      bot._client.write = function (name, data) {
+        writes.push({ name, data })
+        return oldWrite.apply(bot._client, arguments)
+      }
+      return writes
+    }
+
+    function loginBot (client) {
+      client.write('login', bot.test.generateLoginPacket())
+      client.write('position', {
+        x: 0,
+        y: 64,
+        z: 0,
+        yaw: 0,
+        pitch: 0,
+        flags: bot.supportFeature('positionPacketHasBitflags') ? { x: false, y: false, z: false, yaw: false, pitch: false } : 0,
+        teleportId: 1
+      })
+    }
+
+    function stubPassableWorld () {
+      const air = Block.fromStateId(0, 0)
+      bot.blockAt = () => air
+    }
+
+    function isOutsideBoatHorizontalAabb (x, z, boat) {
+      const halfWidth = boat.width / 2
+      return Math.abs(x - boat.position.x) > halfWidth || Math.abs(z - boat.position.z) > halfWidth
+    }
+
+    function setupBoat (vehicleId, position) {
+      const boat = bot.entities[vehicleId] ?? { id: vehicleId, passengers: [] }
+      boat.name = 'boat'
+      boat.position = position
+      boat.width = 1.375
+      boat.height = 0.5625
+      boat.velocity = vec3(0, 0, 0)
+      bot.entities[vehicleId] = boat
+      bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
+      return bot.entities[vehicleId]
+    }
+
+    if (usesLegacySteerVehicle) {
+      it('moveVehicle(0, 0, false) sends steer_vehicle jump mask 0', (done) => {
+        server.on('playerJoin', (client) => {
+          loginBot(client)
+          const writes = captureWrites()
+          bot.moveVehicle(0, 0, false)
+          const packet = writes.find(w => w.name === 'steer_vehicle')
+          assert(packet, 'expected steer_vehicle packet')
+          assert.strictEqual(packet.data.jump, 0)
+          done()
+        })
+      })
+
+      it('moveVehicle(0, 0, true) sends steer_vehicle jump mask 1', (done) => {
+        server.on('playerJoin', (client) => {
+          loginBot(client)
+          const writes = captureWrites()
+          bot.moveVehicle(0, 0, true)
+          const packet = writes.find(w => w.name === 'steer_vehicle')
+          assert(packet, 'expected steer_vehicle packet')
+          assert.strictEqual(packet.data.jump, 0x01)
+          done()
+        })
+      })
+
+      it('dismount() sends steer_vehicle jump mask 2', (done) => {
+        server.on('playerJoin', (client) => {
+          loginBot(client)
+          const vehicleId = 42
+          bot.entities[vehicleId] = bot.entities[vehicleId] || { id: vehicleId, passengers: [] }
+          bot.vehicle = bot.entities[vehicleId]
+          const writes = captureWrites()
+          bot.dismount()
+          const packet = writes.find(w => w.name === 'steer_vehicle')
+          assert(packet, 'expected steer_vehicle packet')
+          assert.strictEqual(packet.data.jump, 0x02)
+          done()
+        })
+      })
+
+      if (hasSetPassengers) {
+        it('keeps dismount bit on steer_vehicle until set_passengers confirms', (done) => {
+          server.on('playerJoin', (client) => {
+            bot.once('login', async () => {
+              bot.blockAt = () => ({})
+
+              const vehicleId = 100
+              bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
+
+              const writes = captureWrites()
+              bot.dismount()
+
+              for (let i = 0; i < 4; i++) {
+                await once(bot, 'physicsTick')
+              }
+
+              const duringDismount = writes.filter(w => w.name === 'steer_vehicle')
+              assert(duringDismount.length >= 5, 'expected dismount + physics steer_vehicle packets')
+              for (const packet of duringDismount) {
+                assert.strictEqual(packet.data.jump & 0x02, 0x02, `expected dismount bit, got jump=${packet.data.jump}`)
+                assert.notStrictEqual(packet.data.jump, 0, 'periodic steer_vehicle must not clear dismount bit')
+              }
+
+              bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [] })
+              assert.strictEqual(bot.vehicle, null)
+
+              writes.length = 0
+              bot.moveVehicle(0, 0, false)
+              const afterConfirm = writes.filter(w => w.name === 'steer_vehicle')
+              assert.strictEqual(afterConfirm.length, 1)
+              assert.strictEqual(afterConfirm[0].data.jump, 0)
+
+              done()
+            })
+            loginBot(client)
+          })
+        })
+      }
+    }
+
+    if (hasSetPassengers) {
+      it('syncs mounted player state from vehicle on physicsTick', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            // tickPhysics bails when blockAt returns null; stub so the mounted path is testable
+            // without version-specific map_chunk wiring.
+            bot.blockAt = () => ({})
+
+            const vehicleId = 100
+            bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
+            const vehicle = bot.entities[vehicleId]
+            vehicle.position = vec3(1, 63, 2)
+            vehicle.velocity = vec3(0.25, 0.1, -0.5)
+            vehicle.height = 1
+            vehicle.onGround = true
+            bot.entity.position.set(0, 50, 0)
+            bot.entity.velocity.set(0, -5, 0)
+            const positionRef = bot.entity.position
+
+            await once(bot, 'physicsTick')
+
+            assert.strictEqual(bot.entity.position, positionRef, 'position Vec3 must not be replaced')
+            assert.strictEqual(bot.entity.position.x, 1)
+            assert.strictEqual(bot.entity.position.y, 64)
+            assert.strictEqual(bot.entity.position.z, 2)
+            assert.strictEqual(bot.entity.velocity.x, 0.25)
+            assert.strictEqual(bot.entity.velocity.y, 0.1)
+            assert.strictEqual(bot.entity.velocity.z, -0.5)
+            assert.strictEqual(bot.entity.onGround, true)
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('set_passengers mount and dismount lifecycle', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', () => {
+            const vehicleId = 100
+            let mountCount = 0
+            let dismountCount = 0
+            bot.on('mount', () => { mountCount++ })
+            bot.on('dismount', () => { dismountCount++ })
+
+            bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
+            assert.strictEqual(bot.vehicle?.id, vehicleId)
+            assert.strictEqual(bot.entity.vehicle?.id, vehicleId)
+            assert.strictEqual(mountCount, 1)
+            assert.strictEqual(dismountCount, 0)
+
+            bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
+            assert.strictEqual(mountCount, 1, 'duplicate mount packet must not re-emit mount')
+            assert.strictEqual(dismountCount, 0)
+
+            bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [] })
+            assert.strictEqual(bot.vehicle, null)
+            assert.strictEqual(bot.entity.vehicle, undefined)
+            assert.strictEqual(mountCount, 1)
+            assert.strictEqual(dismountCount, 1)
+
+            bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [] })
+            assert.strictEqual(dismountCount, 1, 'duplicate dismount packet must not re-emit dismount')
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('set_passengers removes absent passengers from vehicle.passengers', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', () => {
+            const vehicleId = 100
+            const otherPassengerId = 200
+            bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id, otherPassengerId] })
+
+            const vehicle = bot.entities[vehicleId]
+            assert.strictEqual(vehicle.passengers.length, 2)
+
+            bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
+            assert.strictEqual(vehicle.passengers.length, 1)
+            assert.strictEqual(vehicle.passengers[0].id, bot.entity.id)
+            assert.strictEqual(bot.entities[otherPassengerId].vehicle, null)
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('offsets player outside boat on dismount and keeps them there', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            stubPassableWorld()
+
+            const vehicleId = 100
+            const boat = setupBoat(vehicleId, vec3(10, 63, 20))
+
+            await once(bot, 'physicsTick')
+            const boatCenterX = boat.position.x
+            const boatCenterZ = boat.position.z
+            const positionRef = bot.entity.position
+
+            bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [] })
+
+            assert.strictEqual(bot.vehicle, null)
+            assert.strictEqual(bot.entity.vehicle, undefined)
+            assert.strictEqual(bot.entity.position, positionRef)
+            assert.strictEqual(bot.entity.position.y, boat.position.y + boat.height)
+            assert.ok(
+              isOutsideBoatHorizontalAabb(bot.entity.position.x, bot.entity.position.z, boat),
+              'player must be outside boat horizontal AABB after dismount'
+            )
+
+            const afterFirstOffset = bot.entity.position.clone()
+            bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [] })
+            assert.strictEqual(bot.entity.position.x, afterFirstOffset.x)
+            assert.strictEqual(bot.entity.position.y, afterFirstOffset.y)
+            assert.strictEqual(bot.entity.position.z, afterFirstOffset.z)
+
+            for (let i = 0; i < 3; i++) {
+              await once(bot, 'physicsTick')
+            }
+            assert.ok(
+              isOutsideBoatHorizontalAabb(bot.entity.position.x, bot.entity.position.z, boat),
+              'player must stay outside boat after subsequent physics ticks'
+            )
+            assert.ok(
+              Math.abs(bot.entity.position.x - boatCenterX) > boat.width / 2 ||
+              Math.abs(bot.entity.position.z - boatCenterZ) > boat.width / 2,
+              'player must not remain at boat center'
+            )
+
+            const xBefore = bot.entity.position.x
+            const zBefore = bot.entity.position.z
+            bot.setControlState('forward', true)
+            await once(bot, 'physicsTick')
+            await once(bot, 'physicsTick')
+            bot.setControlState('forward', false)
+            const moved = (bot.entity.position.x - xBefore) ** 2 + (bot.entity.position.z - zBefore) ** 2 > 1e-8
+            assert.ok(moved, 'forward control should move player after boat dismount')
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+    }
+
+    if (usesLegacySteerVehicle) {
+      it('setControlState sneak only dismounts on press, not release', (done) => {
+        server.on('playerJoin', (client) => {
+          loginBot(client)
+          const vehicleId = 42
+          bot.entities[vehicleId] = bot.entities[vehicleId] || { id: vehicleId, passengers: [] }
+          bot.vehicle = bot.entities[vehicleId]
+
+          const writes = captureWrites()
+          bot.setControlState('sneak', true)
+          bot.setControlState('sneak', false)
+
+          const dismountPackets = writes.filter(w => w.name === 'steer_vehicle' && w.data.jump === 0x02)
+          assert.strictEqual(dismountPackets.length, 1, 'expected exactly one dismount packet on sneak press')
+          done()
+        })
+      })
+    }
+  })
+}
