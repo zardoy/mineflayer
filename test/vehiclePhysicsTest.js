@@ -303,6 +303,124 @@ describe('mineflayer_vehicle_physics 1.17.1v', function () {
     })
   })
 
+  it('ignores routine server broadcasts for the controlled boat', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        stubLoadedWorld(bot)
+        const boat = setupBoat(bot, 100, vec3(0, 63, 0))
+        await once(bot, 'physicsTick')
+
+        const before = {
+          x: boat.position.x,
+          y: boat.position.y,
+          z: boat.position.z,
+          yaw: boat.yaw,
+          velX: boat.velocity.x,
+          velZ: boat.velocity.z
+        }
+        let movedEvents = 0
+        bot.on('entityMoved', (entity) => {
+          if (entity === boat) movedEvents++
+        })
+
+        bot._client.emit('rel_entity_move', { entityId: 100, dX: 32, dY: 0, dZ: 0 })
+        bot._client.emit('entity_move_look', { entityId: 100, dX: 0, dY: 0, dZ: -32, yaw: 90, pitch: 0 })
+        bot._client.emit('entity_look', { entityId: 100, yaw: 45, pitch: 10 })
+        bot._client.emit('entity_velocity', { entityId: 100, velocityX: 8000, velocityY: 0, velocityZ: -8000 })
+
+        assert.strictEqual(boat.position.x, before.x)
+        assert.strictEqual(boat.position.y, before.y)
+        assert.strictEqual(boat.position.z, before.z)
+        assert.strictEqual(boat.yaw, before.yaw)
+        assert.strictEqual(boat.velocity.x, before.velX)
+        assert.strictEqual(boat.velocity.z, before.velZ)
+        assert.strictEqual(movedEvents, 0)
+      })
+    })
+  })
+
+  it('ignores entity_teleport for the controlled boat even with a large delta', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        stubLoadedWorld(bot)
+        const boat = setupBoat(bot, 100, vec3(0, 63, 0))
+        await once(bot, 'physicsTick')
+        const ctx = bot._boatPhysics.getCtx()
+        ctx.state.yawVelocity = 0.05
+
+        let movedFromTeleport = 0
+        let correctionEvents = 0
+        const onMoved = (entity) => {
+          if (entity === boat) movedFromTeleport++
+        }
+        const onCorrection = (entity) => {
+          if (entity === boat) correctionEvents++
+        }
+        bot.on('entityMoved', onMoved)
+        bot.on('vehicleCorrection', onCorrection)
+
+        bot._client.emit('entity_teleport', {
+          entityId: 100,
+          x: 5,
+          y: 63,
+          z: 3,
+          yaw: 90,
+          pitch: 0
+        })
+
+        assert.strictEqual(boat.position.x, 0)
+        assert.strictEqual(boat.position.z, 0)
+        assert.strictEqual(movedFromTeleport, 0)
+        assert.strictEqual(correctionEvents, 0)
+        bot.removeListener('entityMoved', onMoved)
+        bot.removeListener('vehicleCorrection', onCorrection)
+
+        await once(bot, 'physicsTick')
+
+        assert.ok(Math.abs(boat.position.x - 5) > 0.5, 'entity_teleport must not move controlled boat')
+        assert.ok(Math.abs(boat.position.z - 3) > 0.5, 'entity_teleport must not move controlled boat')
+        assert.ok(ctx.state.yawVelocity > 0)
+        assert.ok(Math.abs(ctx.state.pos.x) < 0.5)
+      })
+    })
+  })
+
+  it('applies entity_teleport to boats the bot is not controlling', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        stubLoadedWorld(bot)
+        const boat = bot.entities[100] ?? { id: 100 }
+        boat.name = 'boat'
+        boat.position = vec3(0, 63, 0)
+        boat.width = 1.375
+        boat.height = 0.5625
+        boat.velocity = vec3(0, 0, 0)
+        boat.yaw = 0
+        boat.pitch = 0
+        bot.entities[100] = boat
+
+        let movedEvents = 0
+        bot.on('entityMoved', (entity) => {
+          if (entity === boat) movedEvents++
+        })
+
+        bot._client.emit('entity_teleport', {
+          entityId: 100,
+          x: 5,
+          y: 63,
+          z: 3,
+          yaw: 90,
+          pitch: 0
+        })
+
+        assert.ok(Math.abs(boat.position.x - 5) < 0.01)
+        assert.ok(Math.abs(boat.position.z - 3) < 0.01)
+        assert.strictEqual(movedEvents, 1)
+        assertNoBoatCtx(bot)
+      })
+    })
+  })
+
   it('rebases on vehicle_move correction and confirms immediately', (done) => {
     server.on('playerJoin', (client) => {
       withLogin(bot, client, done, async () => {
@@ -325,7 +443,33 @@ describe('mineflayer_vehicle_physics 1.17.1v', function () {
     })
   })
 
-  it('replaces velocity on entity_velocity correction', (done) => {
+  it('does not ping-pong after vehicle_move when routine broadcasts arrive', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        stubLoadedWorld(bot)
+        const boat = setupBoat(bot, 100, vec3(0, 63, 0))
+        await once(bot, 'physicsTick')
+
+        bot._client.emit('vehicle_move', { x: 5, y: 62, z: -3, yaw: 45, pitch: 10 })
+        await once(bot, 'physicsTick')
+
+        const afterCorrection = { x: boat.position.x, z: boat.position.z }
+        bot._client.emit('rel_entity_move', { entityId: 100, dX: -32, dY: 0, dZ: 32 })
+        bot._client.emit('entity_move_look', { entityId: 100, dX: 16, dY: 0, dZ: -16, yaw: 10, pitch: 0 })
+        await once(bot, 'physicsTick')
+
+        assert.ok(Math.abs(boat.position.x - afterCorrection.x) < 0.01)
+        assert.ok(Math.abs(boat.position.z - afterCorrection.z) < 0.01)
+        assert.ok(Math.abs(ctxOrBoatPos(bot) - 5) < 0.5)
+      })
+    })
+  })
+
+  function ctxOrBoatPos (bot) {
+    return bot._boatPhysics.getCtx()?.state?.pos?.x ?? bot.vehicle.position.x
+  }
+
+  it('ignores entity_velocity for the controlled boat', (done) => {
     server.on('playerJoin', (client) => {
       withLogin(bot, client, done, async () => {
         stubLoadedWorld(bot)
@@ -338,34 +482,28 @@ describe('mineflayer_vehicle_physics 1.17.1v', function () {
           velocityY: 0,
           velocityZ: -8000
         })
-        assert.strictEqual(boat.velocity.x, 1)
-        assert.strictEqual(boat.velocity.z, -1)
+        assert.strictEqual(boat.velocity.x, 0)
+        assert.strictEqual(boat.velocity.z, 0)
 
         await once(bot, 'physicsTick')
-        assert(bot._boatPhysics.getCtx(), 'boat ctx should remain after velocity correction')
+        assert(bot._boatPhysics.getCtx(), 'boat ctx should remain')
       })
     })
   })
 
-  it('preserves yawVelocity across teleport and relative move corrections', (done) => {
+  it('preserves yawVelocity across vehicle_move while ignoring relative move', (done) => {
     server.on('playerJoin', (client) => {
       withLogin(bot, client, done, async () => {
         stubLoadedWorld(bot)
-        setupBoat(bot, 100, vec3(0, 63, 0))
+        const boat = setupBoat(bot, 100, vec3(0, 63, 0))
         await once(bot, 'physicsTick')
         const ctx = bot._boatPhysics.getCtx()
         ctx.state.yawVelocity = 0.05
 
-        bot._client.emit('entity_teleport', {
-          entityId: 100,
-          x: 1,
-          y: 63,
-          z: 1,
-          yaw: 90,
-          pitch: 0
-        })
+        bot._client.emit('vehicle_move', { x: 5, y: 63, z: 3, yaw: 45, pitch: 10 })
         await once(bot, 'physicsTick')
-        assert.ok(ctx.state.yawVelocity > 0, 'yawVelocity must not be cleared by teleport rebase')
+        assert.ok(Math.abs(boat.position.x - 5) < 0.01, 'vehicle_move should rebase controlled boat')
+        assert.ok(ctx.state.yawVelocity > 0, 'yawVelocity must not be cleared by vehicle_move rebase')
 
         bot._client.emit('rel_entity_move', {
           entityId: 100,
@@ -374,7 +512,8 @@ describe('mineflayer_vehicle_physics 1.17.1v', function () {
           dZ: 0
         })
         await once(bot, 'physicsTick')
-        assert.ok(ctx.state.yawVelocity > 0, 'yawVelocity must not be cleared by relative move rebase')
+        assert.ok(Math.abs(boat.position.x - 5) < 0.01, 'relative move must not mutate controlled boat')
+        assert.ok(ctx.state.yawVelocity > 0, 'yawVelocity must not be cleared by ignored relative move')
       })
     })
   })
