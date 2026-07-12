@@ -165,6 +165,7 @@ describe('mineflayer_vehicle_physics 1.17.1v', function () {
         await once(bot, 'physicsTick')
         assert(bot._boatPhysics.getCtx(), 'expected boat physics context')
         assert.strictEqual(bot._boatPhysics.getCtx().state.constructor.name, 'BoatState')
+        assert.notStrictEqual(bot._boatPhysics.getStatus(), null)
       })
     })
   })
