@@ -100,6 +100,9 @@ for (const supportedVersion of mineflayer.testedVersions) {
       boat.width = 1.375
       boat.height = 0.5625
       boat.velocity = vec3(0, 0, 0)
+      boat.metadata ??= []
+      boat.effects ??= []
+      boat.equipment ??= []
       bot.entities[vehicleId] = boat
       bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
       return bot.entities[vehicleId]

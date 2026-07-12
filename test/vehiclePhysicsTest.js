@@ -79,6 +79,9 @@ function setupBoat (bot, vehicleId, position) {
   boat.velocity = vec3(0, 0, 0)
   boat.yaw = 0
   boat.pitch = 0
+  boat.metadata ??= []
+  boat.effects ??= []
+  boat.equipment ??= []
   bot.entities[vehicleId] = boat
   bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
   return boat
@@ -118,7 +121,7 @@ function teardownBotAndServer (bot, server, done) {
 
 function withLogin (bot, client, done, runTest) {
   bot.once('login', () => {
-    void runTest().then(() => done(), done)
+    runTest().then(() => done(), done)
   })
   loginBot(bot, client)
 }
@@ -398,6 +401,9 @@ describe('mineflayer_vehicle_physics 1.17.1v', function () {
         boat.velocity = vec3(0, 0, 0)
         boat.yaw = 0
         boat.pitch = 0
+        boat.metadata ??= []
+        boat.effects ??= []
+        boat.equipment ??= []
         bot.entities[100] = boat
 
         let movedEvents = 0
@@ -661,6 +667,9 @@ describe('mineflayer_vehicle_physics legacy boat behavior', function () {
         boat.velocity = vec3(0, 0, 0)
         boat.yaw = 0
         boat.pitch = 0
+        boat.metadata ??= []
+        boat.effects ??= []
+        boat.equipment ??= []
         bot.entities[100] = boat
         bot._client.emit('set_passengers', { entityId: 100, passengers: [bot.entity.id] })
 
