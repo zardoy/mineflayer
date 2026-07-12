@@ -169,6 +169,29 @@ describe('mineflayer_vehicle_physics 1.17.1v', function () {
     })
   })
 
+  it('controls boat when passengers[0] is a duplicate entity object with the same id', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        stubLoadedWorld(bot)
+        const boat = setupBoat(bot, 100, vec3(0, 63, 0))
+        await once(bot, 'physicsTick')
+
+        const stalePassengerRef = { id: bot.entity.id, vehicle: boat }
+        boat.passengers[0] = stalePassengerRef
+        assert.notStrictEqual(boat.passengers[0], bot.entity)
+        assert.strictEqual(boat.passengers[0].id, bot.entity.id)
+
+        const beforeZ = boat.position.z
+        bot.setControlState('forward', true)
+        await once(bot, 'physicsTick')
+        bot.setControlState('forward', false)
+
+        assert(bot._boatPhysics.getCtx(), 'expected boat physics context for matching passenger id')
+        assert.ok(boat.position.z < beforeZ, 'boat should move when id matches despite stale object reference')
+      })
+    })
+  })
+
   it('does not control or send movement packets for the second passenger', (done) => {
     server.on('playerJoin', (client) => {
       withLogin(bot, client, done, async () => {
