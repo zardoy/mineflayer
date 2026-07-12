@@ -278,6 +278,56 @@ for (const supportedVersion of mineflayer.testedVersions) {
         })
       })
 
+      it('emits remote passenger attach and detach after updating vehicle state', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', () => {
+            const firstVehicleId = 100
+            const secondVehicleId = 101
+            const passengerId = 200
+            const events = []
+
+            bot.on('entityAttach', (passenger, vehicle) => {
+              if (passenger.id !== passengerId) return
+              events.push({
+                type: 'attach',
+                vehicleId: vehicle.id,
+                passengerVehicleId: passenger.vehicle?.id,
+                vehiclePassengerIds: vehicle.passengers.map(({ id }) => id)
+              })
+            })
+            bot.on('entityDetach', (passenger, vehicle) => {
+              if (passenger.id !== passengerId) return
+              events.push({
+                type: 'detach',
+                vehicleId: vehicle.id,
+                passengerVehicleId: passenger.vehicle?.id ?? null,
+                vehiclePassengerIds: vehicle.passengers.map(({ id }) => id)
+              })
+            })
+
+            bot._client.emit('set_passengers', { entityId: firstVehicleId, passengers: [passengerId] })
+            bot._client.emit('set_passengers', { entityId: firstVehicleId, passengers: [passengerId] })
+            bot._client.emit('set_passengers', { entityId: secondVehicleId, passengers: [passengerId] })
+            bot._client.emit('set_passengers', { entityId: secondVehicleId, passengers: [passengerId] })
+            bot._client.emit('set_passengers', { entityId: secondVehicleId, passengers: [] })
+            bot._client.emit('set_passengers', { entityId: secondVehicleId, passengers: [] })
+
+            assert.deepStrictEqual(events, [
+              { type: 'attach', vehicleId: firstVehicleId, passengerVehicleId: firstVehicleId, vehiclePassengerIds: [passengerId] },
+              { type: 'detach', vehicleId: firstVehicleId, passengerVehicleId: null, vehiclePassengerIds: [] },
+              { type: 'attach', vehicleId: secondVehicleId, passengerVehicleId: secondVehicleId, vehiclePassengerIds: [passengerId] },
+              { type: 'detach', vehicleId: secondVehicleId, passengerVehicleId: null, vehiclePassengerIds: [] }
+            ])
+            assert.deepStrictEqual(bot.entities[firstVehicleId].passengers, [])
+            assert.deepStrictEqual(bot.entities[secondVehicleId].passengers, [])
+            assert.strictEqual(bot.entities[passengerId].vehicle, null)
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
       it('offsets player outside boat on dismount and keeps them there', (done) => {
         server.on('playerJoin', (client) => {
           bot.once('login', async () => {
