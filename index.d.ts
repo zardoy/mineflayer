@@ -364,6 +364,8 @@ export interface Bot extends TypedEmitter<BotEvents> {
 
   swingArm: (hand: 'left' | 'right' | undefined, showHand?: boolean) => void
 
+  vehicle: Entity | null
+
   mount: (entity: Entity) => void
 
   dismount: () => void
