@@ -370,7 +370,18 @@ export interface Bot extends TypedEmitter<BotEvents> {
 
   dismount: () => void
 
-  moveVehicle: (left: number, forward: number) => void
+  moveVehicle: (left: number, forward: number, jump?: boolean) => void
+
+  _boatPhysics?: {
+    getCtx: () => import('@nxg-org/mineflayer-physics-util').EPhysicsCtx<import('@nxg-org/mineflayer-physics-util').BoatState> | null
+    isDisabled: () => boolean
+    getStatus: () => import('@nxg-org/mineflayer-physics-util').BoatStatus | null
+  }
+
+  _horsePhysics?: {
+    getCtx: () => import('@nxg-org/mineflayer-physics-util').EPhysicsCtx<import('@nxg-org/mineflayer-physics-util').HorseState> | null
+    isDisabled: () => boolean
+  }
 
   setQuickBarSlot: (slot: number) => void
 
