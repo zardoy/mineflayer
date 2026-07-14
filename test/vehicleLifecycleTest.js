@@ -387,6 +387,294 @@ for (const supportedVersion of mineflayer.testedVersions) {
       })
     }
 
+    if (supportedVersion === '1.17.1' && hasSetPassengers) {
+      const POST_DISMOUNT_TIMEOUT_MS = 3000
+
+      function makePositionPacket (x, y, z, { dismountVehicle, teleportId }) {
+        const packet = {
+          x,
+          y,
+          z,
+          yaw: 0,
+          pitch: 0,
+          flags: bot.supportFeature('positionPacketHasBitflags')
+            ? { x: false, y: false, z: false, yaw: false, pitch: false }
+            : 0,
+          teleportId
+        }
+        if (dismountVehicle === true) packet.dismountVehicle = true
+        return packet
+      }
+
+      function boatDismountPosition (boat) {
+        return {
+          x: boat.position.x,
+          y: boat.position.y + boat.height,
+          z: boat.position.z
+        }
+      }
+
+      function assertBoatDismountOutcome (boat, dismountCount) {
+        assert.strictEqual(bot.vehicle, null)
+        assert.strictEqual(bot.entity.vehicle, undefined)
+        assert.strictEqual(dismountCount, 1)
+        assert.strictEqual(bot._boatPhysics.getCtx(), null)
+        assert.ok(
+          isOutsideBoatHorizontalAabb(bot.entity.position.x, bot.entity.position.z, boat),
+          'player must be outside boat horizontal AABB after dismount'
+        )
+      }
+
+      async function setupMountedBoat (vehicleId, position) {
+        stubPassableWorld()
+        const boat = setupBoat(vehicleId, position)
+        await once(bot, 'physicsTick')
+        assert(bot._boatPhysics.getCtx(), 'expected boat physics context while mounted')
+        return boat
+      }
+
+      it('sequence A: position(dismount) then set_passengers(empty) offsets player outside boat', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            const boat = await setupMountedBoat(100, vec3(10, 63, 20))
+            let dismountCount = 0
+            bot.on('dismount', () => { dismountCount++ })
+
+            const onBoat = boatDismountPosition(boat)
+            bot._client.emit('position', makePositionPacket(onBoat.x, onBoat.y, onBoat.z, {
+              dismountVehicle: true,
+              teleportId: 2
+            }))
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+
+            assertBoatDismountOutcome(boat, dismountCount)
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+            assertBoatDismountOutcome(boat, dismountCount)
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('sequence B: set_passengers(empty) then position(dismount) offsets player outside boat', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            const boat = await setupMountedBoat(100, vec3(10, 63, 20))
+            let dismountCount = 0
+            bot.on('dismount', () => { dismountCount++ })
+
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+            const onBoat = boatDismountPosition(boat)
+            bot._client.emit('position', makePositionPacket(onBoat.x, onBoat.y, onBoat.z, {
+              dismountVehicle: true,
+              teleportId: 2
+            }))
+
+            assertBoatDismountOutcome(boat, dismountCount)
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('delayed sequence B: set_passengers then physicsTick then position(dismount) offsets player', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            const boat = await setupMountedBoat(100, vec3(10, 63, 20))
+            let dismountCount = 0
+            bot.on('dismount', () => { dismountCount++ })
+
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+            await once(bot, 'physicsTick')
+            const onBoat = boatDismountPosition(boat)
+            bot._client.emit('position', makePositionPacket(onBoat.x, onBoat.y, onBoat.z, {
+              dismountVehicle: true,
+              teleportId: 2
+            }))
+
+            assertBoatDismountOutcome(boat, dismountCount)
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('position(dismount=false) does not consume pending post-dismount offset', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            const boat = await setupMountedBoat(100, vec3(10, 63, 20))
+
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+            const afterDismount = bot.entity.position.clone()
+
+            bot._client.emit('position', makePositionPacket(12, 64, 22, {
+              teleportId: 3
+            }))
+            assert.strictEqual(bot.entity.position.x, 12)
+            assert.strictEqual(bot.entity.position.y, 64)
+            assert.strictEqual(bot.entity.position.z, 22)
+
+            const onBoat = boatDismountPosition(boat)
+            bot._client.emit('position', makePositionPacket(onBoat.x, onBoat.y, onBoat.z, {
+              dismountVehicle: true,
+              teleportId: 4
+            }))
+            assert.ok(
+              isOutsideBoatHorizontalAabb(bot.entity.position.x, bot.entity.position.z, boat),
+              'pending offset must still apply on later dismount position packet'
+            )
+            assert.notStrictEqual(bot.entity.position.x, afterDismount.x)
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('reapplies offset for repeated dismount position packets inside boat AABB', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            const boat = await setupMountedBoat(100, vec3(10, 63, 20))
+            let dismountCount = 0
+            bot.on('dismount', () => { dismountCount++ })
+
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+            const onBoat = boatDismountPosition(boat)
+
+            bot._client.emit('position', makePositionPacket(onBoat.x, onBoat.y, onBoat.z, {
+              dismountVehicle: true,
+              teleportId: 2
+            }))
+            assertBoatDismountOutcome(boat, dismountCount)
+
+            bot._client.emit('position', makePositionPacket(onBoat.x, onBoat.y, onBoat.z, {
+              dismountVehicle: true,
+              teleportId: 3
+            }))
+            assertBoatDismountOutcome(boat, dismountCount)
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('later dismount position outside boat AABB is not re-offset', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            const boat = await setupMountedBoat(100, vec3(10, 63, 20))
+
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+            const onBoat = boatDismountPosition(boat)
+            bot._client.emit('position', makePositionPacket(onBoat.x, onBoat.y, onBoat.z, {
+              dismountVehicle: true,
+              teleportId: 2
+            }))
+            const afterOffset = bot.entity.position.clone()
+
+            bot._client.emit('position', makePositionPacket(15, 64, 25, {
+              dismountVehicle: true,
+              teleportId: 3
+            }))
+            assert.strictEqual(bot.entity.position.x, 15)
+            assert.strictEqual(bot.entity.position.y, 64)
+            assert.strictEqual(bot.entity.position.z, 25)
+            assert.notStrictEqual(bot.entity.position.x, afterOffset.x)
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('sendPacketPositionAndLook acknowledges server target before post-dismount offset', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            const boat = await setupMountedBoat(100, vec3(10, 63, 20))
+            const writes = captureWrites()
+            const onBoat = boatDismountPosition(boat)
+
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+            writes.length = 0
+            bot._client.emit('position', makePositionPacket(onBoat.x, onBoat.y, onBoat.z, {
+              dismountVehicle: true,
+              teleportId: 2
+            }))
+
+            const positionLook = writes.find(w => w.name === 'position_look')
+            assert(positionLook, 'expected position_look response')
+            assert.strictEqual(positionLook.data.x, onBoat.x)
+            assert.strictEqual(positionLook.data.y, onBoat.y)
+            assert.strictEqual(positionLook.data.z, onBoat.z)
+            assert.ok(
+              isOutsideBoatHorizontalAabb(bot.entity.position.x, bot.entity.position.z, boat),
+              'local position must be offset after acknowledgement'
+            )
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('pending post-dismount state expires after 3 seconds', function (done) {
+        this.timeout(6000)
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            const boat = await setupMountedBoat(100, vec3(10, 63, 20))
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+
+            await new Promise(resolve => setTimeout(resolve, POST_DISMOUNT_TIMEOUT_MS + 100))
+
+            const onBoat = boatDismountPosition(boat)
+            bot._client.emit('position', makePositionPacket(onBoat.x, onBoat.y, onBoat.z, {
+              dismountVehicle: true,
+              teleportId: 2
+            }))
+
+            assert.strictEqual(bot.entity.position.x, onBoat.x)
+            assert.strictEqual(bot.entity.position.y, onBoat.y)
+            assert.strictEqual(bot.entity.position.z, onBoat.z)
+            assert.ok(
+              !isOutsideBoatHorizontalAabb(bot.entity.position.x, bot.entity.position.z, boat),
+              'expired pending state must not reapply offset'
+            )
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('new mount clears stale pending post-dismount state', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            const boat = await setupMountedBoat(100, vec3(10, 63, 20))
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+
+            bot._client.emit('set_passengers', { entityId: 100, passengers: [bot.entity.id] })
+            await once(bot, 'physicsTick')
+
+            const onBoat = boatDismountPosition(boat)
+            bot._client.emit('position', makePositionPacket(onBoat.x, onBoat.y, onBoat.z, {
+              dismountVehicle: true,
+              teleportId: 2
+            }))
+
+            assert.strictEqual(bot.vehicle, null)
+            assert.ok(
+              isOutsideBoatHorizontalAabb(bot.entity.position.x, bot.entity.position.z, boat),
+              'forced dismount after remount must still offset using fresh pending state'
+            )
+
+            done()
+          })
+          loginBot(client)
+        })
+      })
+    }
+
     if (usesLegacySteerVehicle) {
       it('setControlState sneak only dismounts on press, not release', (done) => {
         server.on('playerJoin', (client) => {
