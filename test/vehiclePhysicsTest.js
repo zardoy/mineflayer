@@ -4,6 +4,7 @@ const mineflayer = require('../')
 const mc = require('minecraft-protocol')
 const vec3 = require('vec3')
 const assert = require('assert')
+const conv = require('../lib/conversions')
 const { once } = require('../lib/promise_utils')
 
 function createBlockWorldStub (version, waterSurfaceY = 63) {
@@ -120,8 +121,14 @@ function teardownBotAndServer (bot, server, done) {
 }
 
 function withLogin (bot, client, done, runTest) {
-  bot.once('login', () => {
-    runTest().then(() => done(), done)
+  bot.once('login', async () => {
+    try {
+      await once(bot, 'forcedMove')
+      await runTest()
+      done()
+    } catch (err) {
+      done(err)
+    }
   })
   loginBot(bot, client)
 }
@@ -594,6 +601,21 @@ describe('mineflayer_vehicle_physics 1.17.1v', function () {
     })
   })
 
+  it('emits entityPhysicsTick for controlled boat', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        stubLoadedWorld(bot)
+        setupBoat(bot, 100, vec3(0, 63, 0))
+
+        let entityPhysicsTicks = 0
+        bot.on('entityPhysicsTick', () => { entityPhysicsTicks++ })
+        await once(bot, 'physicsTick')
+
+        assert.ok(entityPhysicsTicks >= 1, 'expected entityPhysicsTick while controlling boat')
+      })
+    })
+  })
+
   it('disables local boat physics after three rapid corrections until remount', (done) => {
     server.on('playerJoin', (client) => {
       withLogin(bot, client, done, async () => {
@@ -655,11 +677,42 @@ describe('mineflayer_vehicle_physics legacy boat behavior', function () {
     teardownBotAndServer(bot, server, done)
   })
 
-  it('keeps legacy vehicle_move behavior on non-1.17.1 versions', (done) => {
+  it('receives physicsTick and sends legacy boat packets on 1.18.2', (done) => {
     server.on('playerJoin', (client) => {
       withLogin(bot, client, done, async () => {
         bot.blockAt = createBlockWorldStub(bot.version)
-        const boat = bot.entities[100] ?? { id: 100, passengers: [] }
+        const boat = setupBoat(bot, 100, vec3(0, 63, 0))
+        boat.yaw = Math.PI / 4
+        boat.pitch = -Math.PI / 6
+
+        const writes = captureWrites(bot)
+        let physicsTicks = 0
+        bot.on('physicsTick', () => { physicsTicks++ })
+        await once(bot, 'physicsTick')
+
+        assert.ok(physicsTicks >= 1, 'legacy boat controller should receive physicsTick')
+        assertNoBoatCtx(bot, 'legacy versions must not create boatCtx')
+        assert.ok(writes.some(w => w.name === 'vehicle_move'))
+        assert.ok(writes.some(w => w.name === 'steer_boat'))
+        assert.strictEqual(writes.filter(w => w.name === 'position').length, 0)
+        assert.strictEqual(writes.filter(w => w.name === 'position_look').length, 0)
+
+        const packet = writes.find(w => w.name === 'vehicle_move')
+        assert(packet, 'expected vehicle_move')
+        assert.ok(Math.abs(packet.data.yaw) > 10, 'yaw should be in notchian degrees, not radians')
+        assert.ok(Math.abs(packet.data.pitch) > 5, 'pitch should be in notchian degrees, not radians')
+        assert.ok(Math.abs(packet.data.yaw - conv.toNotchianYaw(boat.yaw)) < 0.01)
+        assert.ok(Math.abs(packet.data.pitch - conv.toNotchianPitch(boat.pitch)) < 0.01)
+      })
+    })
+  })
+
+  it('does not send legacy boat packets for the second passenger on 1.18.2', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        bot.blockAt = createBlockWorldStub(bot.version)
+        const vehicleId = 100
+        const boat = bot.entities[vehicleId] ?? { id: vehicleId, passengers: [] }
         boat.name = 'boat'
         boat.position = vec3(0, 63, 0)
         boat.width = 1.375
@@ -670,15 +723,49 @@ describe('mineflayer_vehicle_physics legacy boat behavior', function () {
         boat.metadata ??= []
         boat.effects ??= []
         boat.equipment ??= []
-        bot.entities[100] = boat
-        bot._client.emit('set_passengers', { entityId: 100, passengers: [bot.entity.id] })
+        bot.entities[vehicleId] = boat
+        bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [200, bot.entity.id] })
+        assert.strictEqual(bot.vehicle?.id, vehicleId)
 
         const writes = captureWrites(bot)
-        await once(bot, 'physicsTick')
+        bot.setControlState('forward', true)
+        await once(bot, 'physicsTickBegin')
+        bot.setControlState('forward', false)
 
-        assertNoBoatCtx(bot, 'legacy versions must not create boatCtx')
-        assert.ok(writes.some(w => w.name === 'vehicle_move'))
-        assert.ok(writes.some(w => w.name === 'steer_boat'))
+        assertNoBoatCtx(bot)
+        assert.strictEqual(writes.filter(w => w.name === 'vehicle_move').length, 0)
+        assert.strictEqual(writes.filter(w => w.name === 'steer_boat').length, 0)
+      })
+    })
+  })
+
+  it('pauses physics for unsupported non-boat mounts on 1.18.2', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        bot.blockAt = createBlockWorldStub(bot.version)
+        const pig = bot.entities[100] ?? { id: 100, passengers: [] }
+        pig.name = 'pig'
+        pig.position = vec3(0, 64, 0)
+        pig.width = 0.9
+        pig.height = 0.9
+        pig.velocity = vec3(0, 0, 0)
+        pig.yaw = 0
+        pig.pitch = 0
+        pig.metadata ??= []
+        pig.effects ??= []
+        pig.equipment ??= []
+        bot.entities[100] = pig
+        bot._client.emit('set_passengers', { entityId: 100, passengers: [bot.entity.id] })
+
+        let physicsTicks = 0
+        bot.on('physicsTick', () => { physicsTicks++ })
+        const writes = captureWrites(bot)
+        await once(bot, 'physicsTickBegin')
+
+        assert.strictEqual(physicsTicks, 0, 'unsupported mount should pause physicsTick')
+        assert.strictEqual(writes.filter(w => w.name === 'vehicle_move').length, 0)
+        assert.strictEqual(writes.filter(w => w.name === 'position').length, 0)
+        assert.strictEqual(writes.filter(w => w.name === 'position_look').length, 0)
       })
     })
   })

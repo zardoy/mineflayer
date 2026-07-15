@@ -45,8 +45,14 @@ function loginBot (bot, client) {
 }
 
 function withLogin (bot, client, done, runTest) {
-  bot.once('login', () => {
-    runTest().then(() => done(), done)
+  bot.once('login', async () => {
+    try {
+      await once(bot, 'forcedMove')
+      await runTest()
+      done()
+    } catch (err) {
+      done(err)
+    }
   })
   loginBot(bot, client)
 }

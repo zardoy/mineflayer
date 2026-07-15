@@ -153,11 +153,27 @@ describe('mineflayer_horse_physics 1.17.1v', function () {
     })
   })
 
+  it('emits entityPhysicsTick for controlled horse', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        stubLoadedWorld(bot)
+        setupHorse(bot, 100, vec3(0, 64, 0))
+
+        let entityPhysicsTicks = 0
+        bot.on('entityPhysicsTick', () => { entityPhysicsTicks++ })
+        await once(bot, 'physicsTick')
+
+        assert.ok(entityPhysicsTicks >= 1, 'expected entityPhysicsTick while controlling horse')
+      })
+    })
+  })
+
   it('does not control horse without saddle', (done) => {
     server.on('playerJoin', (client) => {
       withLogin(bot, client, done, async () => {
         stubLoadedWorld(bot)
         setupHorse(bot, 100, vec3(0, 64, 0), { saddled: false })
+        await once(bot, 'physicsTickBegin')
         assert.strictEqual(bot._horsePhysics.getCtx(), null)
       })
     })
