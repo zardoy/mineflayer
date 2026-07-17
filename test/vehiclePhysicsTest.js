@@ -289,6 +289,41 @@ describe('mineflayer_vehicle_physics 1.17.1v', function () {
     })
   })
 
+  it('exposes getPaddleState from boat physics context', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        assert.strictEqual(bot._boatPhysics.getPaddleState(), null)
+
+        stubLoadedWorld(bot)
+        setupBoat(bot, 100, vec3(0, 63, 0))
+        await once(bot, 'physicsTick')
+
+        bot.setControlState('forward', true)
+        await once(bot, 'physicsTick')
+        assert.deepStrictEqual(bot._boatPhysics.getPaddleState(), { leftPaddle: true, rightPaddle: true })
+
+        bot.clearControlStates()
+        bot.setControlState('back', true)
+        await once(bot, 'physicsTick')
+        assert.deepStrictEqual(bot._boatPhysics.getPaddleState(), { leftPaddle: false, rightPaddle: false })
+
+        bot.clearControlStates()
+        bot.setControlState('left', true)
+        await once(bot, 'physicsTick')
+        assert.deepStrictEqual(bot._boatPhysics.getPaddleState(), { leftPaddle: false, rightPaddle: true })
+
+        bot.clearControlStates()
+        bot.setControlState('right', true)
+        await once(bot, 'physicsTick')
+        assert.deepStrictEqual(bot._boatPhysics.getPaddleState(), { leftPaddle: true, rightPaddle: false })
+
+        bot._client.emit('set_passengers', { entityId: 100, passengers: [] })
+        assert.strictEqual(bot._boatPhysics.getCtx(), null)
+        assert.strictEqual(bot._boatPhysics.getPaddleState(), null)
+      })
+    })
+  })
+
   it('does not mutate the boat or send prediction when worldReady is false', (done) => {
     server.on('playerJoin', (client) => {
       withLogin(bot, client, done, async () => {

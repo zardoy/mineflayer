@@ -376,6 +376,7 @@ export interface Bot extends TypedEmitter<BotEvents> {
     getCtx: () => import('@nxg-org/mineflayer-physics-util').EPhysicsCtx<import('@nxg-org/mineflayer-physics-util').BoatState> | null
     isDisabled: () => boolean
     getStatus: () => import('@nxg-org/mineflayer-physics-util').BoatStatus | null
+    getPaddleState: () => { leftPaddle: boolean; rightPaddle: boolean } | null
   }
 
   _horsePhysics?: {
