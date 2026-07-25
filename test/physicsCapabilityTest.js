@@ -8,7 +8,7 @@ const {
   resolveTransportPhysicsCapabilities
 } = require('../lib/physicsCapabilities')
 
-function runScenario (scenario) {
+function runScenarios (scenario = 'all') {
   const script = path.join(__dirname, 'physicsCapabilityScenario.js')
   return spawnSync(process.execPath, [script, scenario], {
     encoding: 'utf8',
@@ -43,23 +43,11 @@ describe('physics capability helper', () => {
 describe('physics capability integration', function () {
   this.timeout(60 * 1000)
 
-  it('starts with boat exports present and horse exports absent', () => {
-    const result = runScenario('boats-only')
+  it('covers boats-only, legacy fallback, full transport, and warn-once behavior', () => {
+    const startedAt = Date.now()
+    const result = runScenarios('all')
+    const elapsedMs = Date.now() - startedAt
     assert.strictEqual(result.status, 0, result.stderr || result.stdout)
-  })
-
-  it('starts with boat and horse exports absent and keeps legacy boat path', () => {
-    const result = runScenario('no-transport')
-    assert.strictEqual(result.status, 0, result.stderr || result.stdout)
-  })
-
-  it('keeps full transport behavior when all exports are present', () => {
-    const result = runScenario('full-transport')
-    assert.strictEqual(result.status, 0, result.stderr || result.stdout)
-  })
-
-  it('logs a missing capability warning only once per capability', () => {
-    const result = runScenario('warn-once')
-    assert.strictEqual(result.status, 0, result.stderr || result.stdout)
+    assert.ok(elapsedMs < 45000, `expected integration scenarios under 45s, took ${elapsedMs}ms`)
   })
 })

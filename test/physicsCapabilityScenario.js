@@ -5,9 +5,47 @@ const vec3 = require('vec3')
 const Module = require('module')
 const path = require('path')
 
-const scenario = process.argv[2]
+const scenarioArg = process.argv[2] || 'all'
+const scenarios = scenarioArg === 'all'
+  ? ['boats-only', 'no-transport', 'full-transport', 'warn-once']
+  : [scenarioArg]
 const supportedVersion = '1.17.1'
 const realUtil = require('@nxg-org/mineflayer-physics-util')
+
+function createStubHorseExports () {
+  class StubHorsePhysics {
+    constructor (registry) {
+      this.registry = registry
+      this.data = registry
+    }
+
+    simulate (ctx) {
+      ctx.state.worldReady = true
+    }
+  }
+
+  class StubHorseState {
+    constructor () {
+      this.worldReady = true
+      this.vel = { set () {} }
+    }
+
+    applyToEntity () {}
+    updateControls () {}
+    updateFromHorseEntity () {}
+    updateJumpCharge () { return null }
+    rebaseFromEntity () {}
+    clone () { return this }
+
+    static CREATE_FROM_ENTITY (horsePhysics, vehicle) {
+      const state = new StubHorseState()
+      state.vel = vehicle.velocity || { set () {} }
+      return state
+    }
+  }
+
+  return { HorsePhysics: StubHorsePhysics, HorseState: StubHorseState }
+}
 
 function buildExports (mode) {
   const exports = { ...realUtil }
@@ -15,31 +53,15 @@ function buildExports (mode) {
     delete exports.HorsePhysics
     delete exports.HorseState
   }
-  if (mode === 'no-transport') {
+  if (mode === 'no-transport' || mode === 'warn-once') {
     delete exports.BoatPhysics
     delete exports.BoatState
   }
+  if (mode === 'full-transport') {
+    Object.assign(exports, createStubHorseExports())
+  }
   return exports
 }
-
-const originalLoad = Module._load
-Module._load = function (request, parent, isMain) {
-  if (request === '@nxg-org/mineflayer-physics-util') {
-    return buildExports(scenario)
-  }
-  return originalLoad.apply(this, arguments)
-}
-
-const mineflayerRoot = path.join(__dirname, '..')
-for (const key of Object.keys(require.cache)) {
-  if (key.startsWith(mineflayerRoot)) {
-    delete require.cache[key]
-  }
-}
-
-const mineflayer = require('../')
-const mc = require('minecraft-protocol')
-const { once } = require('../lib/promise_utils')
 
 function createBlockWorldStub (version, waterSurfaceY = 63) {
   const mcData = require('minecraft-data')(version)
@@ -106,6 +128,10 @@ function setupHorse (bot, vehicleId, position) {
   return horse
 }
 
+function dismountVehicle (bot, vehicleId) {
+  bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [] })
+}
+
 function loginBot (bot, client) {
   client.write('login', bot.test.generateLoginPacket())
   client.write('position', {
@@ -119,122 +145,195 @@ function loginBot (bot, client) {
   })
 }
 
-function withLogin (bot, client, runTest) {
-  return new Promise((resolve, reject) => {
-    bot.once('login', async () => {
-      try {
-        await once(bot, 'forcedMove')
-        await runTest()
-        resolve()
-      } catch (err) {
-        reject(err)
-      }
-    })
-    loginBot(bot, client)
-  })
-}
-
-async function tickPhysics (bot, count = 1) {
-  for (let i = 0; i < count; i++) {
-    await once(bot, 'physicsTick')
-  }
-}
-
-async function withBot (runTest) {
-  const port = 26000 + Math.floor(Math.random() * 1000)
-  const registry = require('prismarine-registry')(supportedVersion)
-  const server = mc.createServer({
-    'online-mode': false,
-    version: supportedVersion,
-    port
-  })
-
-  await new Promise((resolve, reject) => {
-    server.once('listening', resolve)
-    server.once('error', reject)
-  })
-
-  let bot
-  try {
-    await new Promise((resolve, reject) => {
-      server.on('playerJoin', (client) => {
-        withLogin(bot, client, async () => {
-          bot.blockAt = createBlockWorldStub(bot.version)
-          await runTest(bot)
-        }).then(resolve).catch(reject)
-      })
-
-      bot = mineflayer.createBot({
-        username: 'player',
-        version: supportedVersion,
-        port
-      })
-      bot.test = {}
-      bot.test.generateLoginPacket = () => {
-        const loginPacket = registry.loginPacket
-        loginPacket.entityId = 0
-        return loginPacket
-      }
-    })
-  } finally {
-    if (bot && !bot._client.ended) {
-      bot.quit('scenario teardown')
-      await once(bot, 'end')
+async function runWithMode (mode, runTest) {
+  const originalLoad = Module._load
+  Module._load = function (request, parent, isMain) {
+    if (request === '@nxg-org/mineflayer-physics-util') {
+      return buildExports(mode)
     }
-    await new Promise((resolve) => server.close(resolve))
+    return originalLoad.apply(this, arguments)
+  }
+
+  const mineflayerRoot = path.join(__dirname, '..')
+  for (const key of Object.keys(require.cache)) {
+    if (key.startsWith(mineflayerRoot)) {
+      delete require.cache[key]
+    }
+  }
+
+  const mineflayer = require('../')
+  const mc = require('minecraft-protocol')
+  const { once } = require('../lib/promise_utils')
+
+  function withLogin (bot, client, body) {
+    return new Promise((resolve, reject) => {
+      bot.once('login', async () => {
+        try {
+          await once(bot, 'forcedMove')
+          await body()
+          resolve()
+        } catch (err) {
+          reject(err)
+        }
+      })
+      loginBot(bot, client)
+    })
+  }
+
+  async function tickPhysics (bot, count = 1) {
+    for (let i = 0; i < count; i++) {
+      await once(bot, 'physicsTick')
+    }
+  }
+
+  async function teardownBotAndServer (bot, server) {
+    if (bot && !bot._client.ended) {
+      await Promise.race([
+        once(bot, 'end'),
+        new Promise((resolve) => {
+          setTimeout(() => {
+            try {
+              bot._client.end()
+            } catch {}
+            resolve()
+          }, 1000)
+        })
+      ])
+      try {
+        bot.quit('scenario teardown')
+      } catch {}
+    }
+    await new Promise((resolve) => server.close(() => resolve()))
+  }
+
+  async function withBot (body) {
+    const port = 26000 + Math.floor(Math.random() * 1000)
+    const registry = require('prismarine-registry')(supportedVersion)
+    const server = mc.createServer({
+      'online-mode': false,
+      version: supportedVersion,
+      port
+    })
+
+    await new Promise((resolve, reject) => {
+      server.once('listening', resolve)
+      server.once('error', reject)
+    })
+
+    let bot
+    try {
+      await new Promise((resolve, reject) => {
+        server.once('playerJoin', (client) => {
+          withLogin(bot, client, async () => {
+            bot.blockAt = createBlockWorldStub(bot.version)
+            await body(bot, { tickPhysics })
+          }).then(resolve).catch(reject)
+        })
+
+        bot = mineflayer.createBot({
+          username: 'player',
+          version: supportedVersion,
+          port
+        })
+        bot.test = {}
+        bot.test.generateLoginPacket = () => {
+          const loginPacket = registry.loginPacket
+          loginPacket.entityId = 0
+          return loginPacket
+        }
+      })
+    } finally {
+      await teardownBotAndServer(bot, server)
+    }
+  }
+
+  try {
+    await runTest(withBot)
+  } finally {
+    Module._load = originalLoad
   }
 }
 
-async function main () {
-  if (scenario === 'boats-only') {
-    await withBot(async (bot) => {
+async function runBoatsOnlyScenario () {
+  await runWithMode('boats-only', async (withBot) => {
+    await withBot(async (bot, { tickPhysics }) => {
       assert.strictEqual(bot._horsePhysics.getCtx(), null)
       setupBoat(bot, 42, vec3(0, 63, 0))
       await tickPhysics(bot, 2)
       assert.ok(bot._boatPhysics.getCtx(), 'expected local boat context on supported version')
     })
-    return
-  }
+  })
+}
 
-  if (scenario === 'no-transport') {
-    await withBot(async (bot) => {
+async function runNoTransportScenario () {
+  await runWithMode('no-transport', async (withBot) => {
+    await withBot(async (bot, { tickPhysics }) => {
       setupBoat(bot, 42, vec3(0, 63, 0))
       await tickPhysics(bot, 2)
       assert.strictEqual(bot._boatPhysics.getCtx(), null, 'legacy boat path must not create local context')
       assert.strictEqual(bot._horsePhysics.getCtx(), null)
     })
-    return
-  }
+  })
+}
 
-  if (scenario === 'full-transport') {
-    await withBot(async (bot) => {
+async function runFullTransportScenario () {
+  await runWithMode('full-transport', async (withBot) => {
+    await withBot(async (bot, { tickPhysics }) => {
       setupBoat(bot, 42, vec3(0, 63, 0))
       await tickPhysics(bot, 2)
       assert.ok(bot._boatPhysics.getCtx(), 'expected local boat context when exports are present')
+
+      setupHorse(bot, 43, vec3(2, 63, 0))
+      await tickPhysics(bot, 2)
+      assert.ok(bot._horsePhysics.getCtx(), 'expected local horse context when exports are present')
+      assert.strictEqual(bot._horsePhysics.getCtx().state.constructor.name, 'StubHorseState')
     })
-    return
+  })
+}
+
+async function runWarnOnceScenario () {
+  const warnings = []
+  const originalWarn = console.warn
+  console.warn = (...args) => {
+    warnings.push(args.join(' '))
+    originalWarn.apply(console, args)
   }
 
-  if (scenario === 'warn-once') {
-    const warnings = []
-    const originalWarn = console.warn
-    console.warn = (...args) => {
-      warnings.push(args.join(' '))
-      originalWarn.apply(console, args)
-    }
-    try {
+  try {
+    await runWithMode('warn-once', async (withBot) => {
       await withBot(async (bot) => {
-        setupHorse(bot, 43, vec3(0, 63, 0))
-      })
-      const horseWarnings = warnings.filter((line) => line.includes('local horse physics unavailable'))
-      assert.strictEqual(horseWarnings.length, 1)
-    } finally {
-      console.warn = originalWarn
-    }
-    return
-  }
+        setupBoat(bot, 42, vec3(0, 63, 0))
+        dismountVehicle(bot, 42)
+        setupBoat(bot, 42, vec3(0, 63, 0))
 
-  throw new Error(`unknown scenario: ${scenario}`)
+        setupHorse(bot, 43, vec3(2, 63, 0))
+        dismountVehicle(bot, 43)
+        setupHorse(bot, 44, vec3(3, 63, 0))
+      })
+    })
+
+    const boatWarnings = warnings.filter((line) => line.includes('local boat physics unavailable'))
+    const horseWarnings = warnings.filter((line) => line.includes('local horse physics unavailable'))
+    assert.strictEqual(boatWarnings.length, 1, `expected one boat warning, got ${boatWarnings.length}`)
+    assert.strictEqual(horseWarnings.length, 1, `expected one horse warning, got ${horseWarnings.length}`)
+  } finally {
+    console.warn = originalWarn
+  }
+}
+
+const scenarioRunners = {
+  'boats-only': runBoatsOnlyScenario,
+  'no-transport': runNoTransportScenario,
+  'full-transport': runFullTransportScenario,
+  'warn-once': runWarnOnceScenario
+}
+
+async function main () {
+  for (const scenario of scenarios) {
+    const runner = scenarioRunners[scenario]
+    if (!runner) throw new Error(`unknown scenario: ${scenario}`)
+    await runner()
+  }
 }
 
 main().catch((err) => {
