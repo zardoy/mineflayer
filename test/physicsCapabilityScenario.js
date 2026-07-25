@@ -105,7 +105,7 @@ function setupBoat (bot, vehicleId, position) {
   return boat
 }
 
-function setupHorse (bot, vehicleId, position) {
+function setupHorse (bot, vehicleId, position, options = {}) {
   const horse = bot.entities[vehicleId] ?? { id: vehicleId, passengers: [] }
   horse.name = 'horse'
   horse.position = position.clone ? position.clone() : vec3(position.x, position.y, position.z)
@@ -115,7 +115,7 @@ function setupHorse (bot, vehicleId, position) {
   horse.yaw = 0
   horse.pitch = 0
   horse.metadata = new Array(18).fill(0)
-  horse.metadata[17] = 0x04
+  horse.metadata[17] = options.saddled === false ? 0 : 0x04
   horse.attributes = {
     'generic.movement_speed': { value: 0.225, modifiers: [] },
     horse_jump_strength: { value: 0.7, modifiers: [] }
@@ -261,6 +261,16 @@ async function runBoatsOnlyScenario () {
       setupBoat(bot, 42, vec3(0, 63, 0))
       await tickPhysics(bot, 2)
       assert.ok(bot._boatPhysics.getCtx(), 'expected local boat context on supported version')
+
+      dismountVehicle(bot, 42)
+      bot.entity.position.set(0, 68, 0)
+      const horse = setupHorse(bot, 43, vec3(0, 63, 0), { saddled: false })
+      assert.strictEqual(bot._horsePhysics.getCtx(), null)
+      assert.ok(Math.abs(bot.entity.position.y - (horse.position.y + 0.85)) < 0.01,
+        'unsaddled horse passenger sync must work without horse exports')
+      await tickPhysics(bot, 1)
+      assert.ok(Math.abs(bot.entity.position.y - (horse.position.y + 0.85)) < 0.01,
+        'unsaddled horse passenger sync must persist across physics ticks')
     })
   })
 }

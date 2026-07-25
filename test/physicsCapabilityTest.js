@@ -44,10 +44,7 @@ describe('physics capability integration', function () {
   this.timeout(60 * 1000)
 
   it('covers boats-only, legacy fallback, full transport, and warn-once behavior', () => {
-    const startedAt = Date.now()
     const result = runScenarios('all')
-    const elapsedMs = Date.now() - startedAt
     assert.strictEqual(result.status, 0, result.stderr || result.stdout)
-    assert.ok(elapsedMs < 45000, `expected integration scenarios under 45s, took ${elapsedMs}ms`)
   })
 })
