@@ -39,6 +39,10 @@ export type ChatLevel = 'enabled' | 'commandsOnly' | 'disabled'
 export type ViewDistance = 'far' | 'normal' | 'short' | 'tiny' | number
 export type MainHands = 'left' | 'right'
 
+export interface EntityMovedMetadata {
+  headRotationOnly?: boolean
+}
+
 export interface PluginOptions {
   [plugin: string]: boolean | Plugin
 }
@@ -109,7 +113,7 @@ export interface BotEvents {
   playerCollect: (collector: Entity, collected: Entity) => Promise<void> | void
   entityAttributes: (entity: Entity) => Promise<void> | void
   entityGone: (entity: Entity) => Promise<void> | void
-  entityMoved: (entity: Entity) => Promise<void> | void
+  entityMoved: (entity: Entity, metadata?: EntityMovedMetadata) => Promise<void> | void
   entityVelocity: (entity: Entity) => Promise<void> | void
   entityDetach: (entity: Entity, vehicle: Entity) => Promise<void> | void
   entityAttach: (entity: Entity, vehicle: Entity) => Promise<void> | void

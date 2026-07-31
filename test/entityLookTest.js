@@ -97,6 +97,27 @@ describe('mineflayer_entity_look 1.17.1v', function () {
     })
   })
 
+  it('stores entity head rotation as headYaw without changing pitch', (done) => {
+    server.on('playerJoin', (client) => {
+      bot.once('login', () => {
+        const entityId = 204
+        const entity = ensureEntity(entityId)
+        entity.pitch = 0.75
+
+        bot.once('entityMoved', (movedEntity, updateInfo) => {
+          assert.strictEqual(movedEntity, entity)
+          assert.deepStrictEqual(updateInfo, { headRotationOnly: true })
+        })
+        bot._client.emit('entity_head_rotation', { entityId, headYaw: 64 })
+
+        assert.strictEqual(entity.headYaw, conv.fromNotchianYawByte(64))
+        assert.strictEqual(entity.pitch, 0.75)
+        done()
+      })
+      loginBot(client)
+    })
+  })
+
   it('does not write NaN when yaw or pitch is missing', (done) => {
     server.on('playerJoin', (client) => {
       bot.once('login', () => {

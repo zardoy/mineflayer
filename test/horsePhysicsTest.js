@@ -304,6 +304,36 @@ describe('mineflayer_horse_physics 1.17.1v', function () {
     })
   })
 
+  it('ignores entity_head_rotation for controlled horse', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        stubLoadedWorld(bot)
+        const horse = setupHorse(bot, 100, vec3(0, 64, 0))
+        await once(bot, 'physicsTick')
+        horse.headYaw = horse.yaw
+        bot._client.emit('entity_head_rotation', { entityId: 100, headYaw: 64 })
+        assert.strictEqual(horse.headYaw, horse.yaw)
+      })
+    })
+  })
+
+  it('updates headYaw for remote horse entity_head_rotation', (done) => {
+    server.on('playerJoin', (client) => {
+      withLogin(bot, client, done, async () => {
+        const entityId = 300
+        const horse = bot.entities[entityId] ?? { id: entityId, passengers: [] }
+        horse.name = 'horse'
+        horse.position = vec3(5, 64, 5)
+        horse.yaw = 0
+        horse.headYaw = 0
+        bot.entities[entityId] = horse
+
+        bot._client.emit('entity_head_rotation', { entityId, headYaw: 64 })
+        assert.strictEqual(horse.headYaw, conv.fromNotchianYawByte(64))
+      })
+    })
+  })
+
   it('anchors player seat at vanilla horse feet offset', (done) => {
     server.on('playerJoin', (client) => {
       withLogin(bot, client, done, async () => {
