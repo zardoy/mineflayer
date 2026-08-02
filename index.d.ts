@@ -39,6 +39,10 @@ export type ChatLevel = 'enabled' | 'commandsOnly' | 'disabled'
 export type ViewDistance = 'far' | 'normal' | 'short' | 'tiny' | number
 export type MainHands = 'left' | 'right'
 
+export interface EntityMovedMetadata {
+  headRotationOnly?: boolean
+}
+
 export interface PluginOptions {
   [plugin: string]: boolean | Plugin
 }
@@ -109,7 +113,7 @@ export interface BotEvents {
   playerCollect: (collector: Entity, collected: Entity) => Promise<void> | void
   entityAttributes: (entity: Entity) => Promise<void> | void
   entityGone: (entity: Entity) => Promise<void> | void
-  entityMoved: (entity: Entity) => Promise<void> | void
+  entityMoved: (entity: Entity, metadata?: EntityMovedMetadata) => Promise<void> | void
   entityVelocity: (entity: Entity) => Promise<void> | void
   entityDetach: (entity: Entity, vehicle: Entity) => Promise<void> | void
   entityAttach: (entity: Entity, vehicle: Entity) => Promise<void> | void
@@ -364,11 +368,25 @@ export interface Bot extends TypedEmitter<BotEvents> {
 
   swingArm: (hand: 'left' | 'right' | undefined, showHand?: boolean) => void
 
+  vehicle: Entity | null
+
   mount: (entity: Entity) => void
 
   dismount: () => void
 
-  moveVehicle: (left: number, forward: number) => void
+  moveVehicle: (left: number, forward: number, jump?: boolean) => void
+
+  _boatPhysics?: {
+    getCtx: () => import('@nxg-org/mineflayer-physics-util').EPhysicsCtx<import('@nxg-org/mineflayer-physics-util').BoatState> | null
+    isDisabled: () => boolean
+    getStatus: () => import('@nxg-org/mineflayer-physics-util').BoatStatus | null
+    getPaddleState: () => { leftPaddle: boolean; rightPaddle: boolean } | null
+  }
+
+  _horsePhysics?: {
+    getCtx: () => import('@nxg-org/mineflayer-physics-util').EPhysicsCtx<import('@nxg-org/mineflayer-physics-util').HorseState> | null
+    isDisabled: () => boolean
+  }
 
   setQuickBarSlot: (slot: number) => void
 

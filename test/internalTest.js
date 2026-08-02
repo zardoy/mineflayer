@@ -8,6 +8,7 @@ const { sleep } = require('../lib/promise_utils')
 const nbt = require('prismarine-nbt')
 const { once } = require('../lib/promise_utils')
 const { getPort } = require('./common/util')
+const conv = require('../lib/conversions')
 
 for (const supportedVersion of mineflayer.testedVersions) {
   const registry = require('prismarine-registry')(supportedVersion)
@@ -955,6 +956,11 @@ for (const supportedVersion of mineflayer.testedVersions) {
         server.on('playerJoin', (client) => {
           bot.on('entitySpawn', (entity) => {
             assert.strictEqual(entity.displayName, 'Creeper')
+            if (typeof entity.headYaw === 'number') {
+              assert.strictEqual(entity.pitch, conv.fromNotchianPitchByte(14))
+              assert.strictEqual(entity.headYaw, conv.fromNotchianYawByte(14))
+              assert.strictEqual(entity.headPitch, undefined)
+            }
 
             const lastMeta = entity.metadata
             bot.on('entityUpdate', (entity) => {
