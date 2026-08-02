@@ -122,7 +122,7 @@ describe('mineflayer_minecart_lifecycle 1.17.1v', function () {
 
         assert.ok(Math.abs(minecart.position.x - 1) < 0.01)
         assert.ok(Math.abs(bot.entity.position.x - 1) < 0.01, 'player X should sync on entityMoved')
-        assert.ok(Math.abs(bot.entity.position.y - 63.7) < 0.01, 'player Y should sync on entityMoved')
+        assert.ok(Math.abs(bot.entity.position.y - 62.65) < 0.01, 'player Y should sync on entityMoved')
         assert.ok(moveCount >= 1, 'expected move event before next physics tick')
 
         const positionAfterEntityMoved = bot.entity.position.clone()
@@ -168,7 +168,7 @@ describe('mineflayer_minecart_lifecycle 1.17.1v', function () {
         await once(bot, 'physicsTick')
 
         assert.ok(Math.abs(bot.entity.position.x - 1) < 0.01, 'player X should follow minecart')
-        assert.ok(Math.abs(bot.entity.position.y - 63.7) < 0.01, 'player Y should follow minecart')
+        assert.ok(Math.abs(bot.entity.position.y - 62.65) < 0.01, 'player Y should follow minecart')
         assert.ok(Math.abs(bot.entity.position.z - 1) < 0.01, 'player Z should follow minecart')
         assert.ok(moveEvents > 0, 'expected move events while riding minecart')
         assert.strictEqual(writes.filter(w => w.name === 'vehicle_move').length, 0)
@@ -238,13 +238,19 @@ describe('mineflayer_minecart_lifecycle 1.17.1v', function () {
       bot.once('login', () => {
         const vehicleId = 100
         let mountCount = 0
+        const oldPos = bot.entity.position.clone()
+        const moves = []
         bot.on('mount', () => { mountCount++ })
+        bot.on('move', previousPosition => moves.push(previousPosition))
 
-        setupMinecart(bot, vehicleId, 'minecart', vec3(0, 63, 0))
+        const minecart = setupMinecart(bot, vehicleId, 'minecart', vec3(0, 63, 0))
 
         assert.strictEqual(bot.vehicle?.id, vehicleId)
         assert.strictEqual(bot.entity.vehicle?.id, vehicleId)
         assert.strictEqual(mountCount, 1)
+        assert.strictEqual(bot.entity.position.y, minecart.position.y - 0.35)
+        assert.strictEqual(moves.length, 1)
+        assert(moves[0].equals(oldPos), 'move event must contain the pre-mount position')
         done()
       })
       loginBot(bot, client, registry)
@@ -281,7 +287,7 @@ describe('mineflayer_minecart_lifecycle 1.17.1v', function () {
         await once(bot, 'physicsTick')
 
         assert.strictEqual(bot.entity.position.x, 1)
-        assert.strictEqual(bot.entity.position.y, 63.7)
+        assert.strictEqual(bot.entity.position.y, 62.65)
         assert.strictEqual(bot.entity.position.z, 2)
         done()
       })

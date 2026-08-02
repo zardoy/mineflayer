@@ -93,9 +93,9 @@ for (const supportedVersion of mineflayer.testedVersions) {
       return Math.abs(x - boat.position.x) > halfWidth || Math.abs(z - boat.position.z) > halfWidth
     }
 
-    function setupBoat (vehicleId, position) {
+    function setupBoat (vehicleId, position, name = 'boat') {
       const boat = bot.entities[vehicleId] ?? { id: vehicleId, passengers: [] }
-      boat.name = 'boat'
+      boat.name = name
       boat.position = position
       boat.width = 1.375
       boat.height = 0.5625
@@ -104,6 +104,36 @@ for (const supportedVersion of mineflayer.testedVersions) {
       boat.effects ??= []
       boat.equipment ??= []
       bot.entities[vehicleId] = boat
+      bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
+      return bot.entities[vehicleId]
+    }
+
+    function setupMinecart (vehicleId, position) {
+      const minecart = bot.entities[vehicleId] ?? { id: vehicleId, passengers: [] }
+      minecart.name = 'minecart'
+      minecart.position = position
+      minecart.width = 0.98
+      minecart.height = 0.7
+      minecart.velocity = vec3(0, 0, 0)
+      minecart.metadata ??= []
+      minecart.effects ??= []
+      minecart.equipment ??= []
+      bot.entities[vehicleId] = minecart
+      bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
+      return bot.entities[vehicleId]
+    }
+
+    function setupHorse (vehicleId, position) {
+      const horse = bot.entities[vehicleId] ?? { id: vehicleId, passengers: [] }
+      horse.name = 'horse'
+      horse.position = position
+      horse.width = 1.4
+      horse.height = 1.6
+      horse.velocity = vec3(0, 0, 0)
+      horse.metadata ??= []
+      horse.effects ??= []
+      horse.equipment ??= []
+      bot.entities[vehicleId] = horse
       bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [bot.entity.id] })
       return bot.entities[vehicleId]
     }
@@ -251,6 +281,100 @@ for (const supportedVersion of mineflayer.testedVersions) {
             bot._client.emit('set_passengers', { entityId: vehicleId, passengers: [] })
             assert.strictEqual(dismountCount, 1, 'duplicate dismount packet must not re-emit dismount')
 
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      it('snaps boat passenger position on mount and emits one move event', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', () => {
+            const oldPos = bot.entity.position.clone()
+            const moves = []
+            bot.on('move', previousPosition => moves.push(previousPosition))
+
+            const boat = setupBoat(100, vec3(1, 63, 2))
+            const expectedOffset = registry.isNewerOrEqualTo('1.20.2') ? -0.4125 : -0.45
+
+            assert.strictEqual(bot.entity.position.x, boat.position.x)
+            assert.strictEqual(bot.entity.position.y, boat.position.y + expectedOffset)
+            assert.strictEqual(bot.entity.position.z, boat.position.z)
+            assert.strictEqual(moves.length, 1)
+            assert(moves[0].equals(oldPos), 'move event must contain the pre-mount position')
+            done()
+          })
+          loginBot(client)
+        })
+      })
+
+      if (['1.20.1', '1.20.2', '1.21.4'].includes(supportedVersion)) {
+        it('snaps modern minecart passenger position on mount', (done) => {
+          server.on('playerJoin', (client) => {
+            bot.once('login', async () => {
+              bot.entity.position.set(0, 50, 0)
+              const oldPos = bot.entity.position.clone()
+              const moves = []
+              bot.on('move', previousPosition => moves.push(previousPosition))
+
+              const minecart = setupMinecart(100, vec3(1, 63, 2))
+              const expectedOffset = supportedVersion === '1.20.1' ? -0.35 : -0.4125
+
+              assert.strictEqual(bot.entity.position.x, minecart.position.x)
+              assert.strictEqual(bot.entity.position.y, minecart.position.y + expectedOffset)
+              assert.strictEqual(bot.entity.position.z, minecart.position.z)
+              assert.strictEqual(moves.length, 1)
+              assert(moves[0].equals(oldPos), 'move event must contain the pre-mount position')
+              done()
+            })
+            loginBot(client)
+          })
+        })
+      }
+
+      if (supportedVersion === '1.21.4') {
+        it('uses the modern bamboo raft passenger offset', (done) => {
+          server.on('playerJoin', (client) => {
+            bot.once('login', async () => {
+              bot.entity.position.set(0, 50, 0)
+              const oldPos = bot.entity.position.clone()
+              const moves = []
+              bot.on('move', previousPosition => moves.push(previousPosition))
+
+              const raft = setupBoat(100, vec3(1, 63, 2), 'bamboo_raft')
+
+              assert.strictEqual(bot.entity.position.x, raft.position.x)
+              assert.ok(Math.abs(bot.entity.position.y - (raft.position.y - 0.1)) < 1e-6)
+              assert.strictEqual(bot.entity.position.z, raft.position.z)
+              assert.strictEqual(moves.length, 1)
+              assert(moves[0].equals(oldPos), 'move event must contain the pre-mount position')
+              done()
+            })
+            loginBot(client)
+          })
+        })
+      }
+
+      it('preserves the existing horse passenger sync behavior', (done) => {
+        server.on('playerJoin', (client) => {
+          bot.once('login', async () => {
+            bot.entity.position.set(0, 50, 0)
+            bot.blockAt = () => ({})
+            const oldPos = bot.entity.position.clone()
+            const moves = []
+            bot.on('move', previousPosition => moves.push(previousPosition))
+            const horse = setupHorse(100, vec3(1, 63, 2))
+
+            if (supportedVersion === '1.17.1') {
+              assert.strictEqual(bot.entity.position.y, horse.position.y + 0.85)
+              assert.strictEqual(moves.length, 1)
+            } else {
+              assert(bot.entity.position.equals(oldPos), 'horse mount must not resync immediately')
+              assert.strictEqual(moves.length, 0)
+            }
+
+            await once(bot, 'physicsTick')
+            assert.strictEqual(bot.entity.position.y, supportedVersion === '1.17.1' ? horse.position.y + 0.85 : horse.position.y + horse.height)
             done()
           })
           loginBot(client)
