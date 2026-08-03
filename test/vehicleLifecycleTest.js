@@ -353,6 +353,44 @@ for (const supportedVersion of mineflayer.testedVersions) {
             loginBot(client)
           })
         })
+
+        it('sends player_input once on input change while riding minecart', (done) => {
+          server.on('playerJoin', (client) => {
+            bot.once('login', async () => {
+              stubPassableWorld()
+              await once(bot, 'forcedMove')
+              await once(bot, 'physicsTick')
+
+              setupMinecart(100, vec3(0, 63, 0))
+              await once(bot, 'physicsTick')
+
+              const writes = captureWrites()
+
+              bot.setControlState('forward', true)
+              for (let i = 0; i < 3; i++) {
+                await once(bot, 'physicsTick')
+              }
+
+              const inputPackets = writes.filter(w => w.name === 'player_input')
+              assert.strictEqual(inputPackets.length, 1, 'player_input must be sent only on input change')
+              assert.strictEqual(inputPackets[0].data.inputs.forward, true)
+
+              const countAfterForward = inputPackets.length
+              for (let i = 0; i < 3; i++) {
+                await once(bot, 'physicsTick')
+              }
+              assert.strictEqual(
+                writes.filter(w => w.name === 'player_input').length,
+                countAfterForward,
+                'holding forward must not emit extra player_input packets'
+              )
+
+              bot.clearControlStates()
+              done()
+            })
+            loginBot(client)
+          })
+        })
       }
 
       it('preserves the existing horse passenger sync behavior', (done) => {

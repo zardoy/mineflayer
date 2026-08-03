@@ -16,6 +16,8 @@ const MINECART_VARIANTS = [
   'command_block_minecart'
 ]
 
+const MAX_VEHICLE_MOVE_COMPONENT = 0.9800000190734863
+
 function captureWrites (bot) {
   const writes = []
   const oldWrite = bot._client.write
@@ -270,6 +272,45 @@ describe('mineflayer_minecart_lifecycle 1.17.1v', function () {
 
         assert.strictEqual(writes.filter(w => w.name === 'vehicle_move').length, 0)
         assert.ok(writes.some(w => w.name === 'steer_vehicle'), 'expected steer_vehicle packets')
+        done()
+      })
+      loginBot(bot, client, registry)
+    })
+  })
+
+  it('sends non-zero steer_vehicle input from controlState on every physics tick', (done) => {
+    server.on('playerJoin', (client) => {
+      bot.once('login', async () => {
+        stubLoadedWorld(bot)
+        await completeLoginHandshake(bot)
+
+        setupMinecart(bot, 100, 'minecart', vec3(0, 63, 0))
+        await once(bot, 'physicsTick')
+
+        const writes = captureWrites(bot)
+
+        bot.setControlState('forward', true)
+        for (let i = 0; i < 3; i++) {
+          await once(bot, 'physicsTick')
+        }
+
+        const forwardPackets = writes.filter(w => w.name === 'steer_vehicle')
+        assert.ok(forwardPackets.length >= 3, 'expected steer_vehicle on each physics tick')
+        for (const packet of forwardPackets) {
+          assert.strictEqual(packet.data.forward, MAX_VEHICLE_MOVE_COMPONENT, 'forward must be the clamped impulse while W is held')
+          assert.strictEqual(packet.data.sideways, 0)
+        }
+
+        bot.setControlState('forward', false)
+        bot.setControlState('left', true)
+        await once(bot, 'physicsTick')
+
+        const lastPacket = writes.filter(w => w.name === 'steer_vehicle').at(-1)
+        assert(lastPacket, 'expected steer_vehicle after switching to left')
+        assert.strictEqual(lastPacket.data.forward, 0)
+        assert.strictEqual(lastPacket.data.sideways, MAX_VEHICLE_MOVE_COMPONENT, 'left must produce the clamped positive sideways impulse')
+
+        bot.clearControlStates()
         done()
       })
       loginBot(bot, client, registry)
